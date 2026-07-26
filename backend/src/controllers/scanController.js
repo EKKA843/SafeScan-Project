@@ -1,13 +1,16 @@
 const { execFile } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const db = require('../config/db');
 
-// 🪄 ฟังก์ชันสำหรับตัดเกรด A-F ตามช่วงคะแนน มทส.
-const calculateGrade = (score) => {
-  if (score >= 90) return 'A'; // ปลอดภัย - ผ่านมาตรฐาน OWASP 2025
-  if (score >= 70) return 'B'; // พอใช้ได้ - มีจุดเล็กน้อยที่ควรแก้ไข
-  if (score >= 50) return 'C'; // ควรแก้ไข - มีความเสี่ยงที่ชัดเจน
-  if (score >= 30) return 'D'; // เสี่ยงสูง - ต้องเร่งแก้ไขโดยด่วน
-  return 'F';                  // อันตราย - ห้ามใช้งานใน Production
+// 🪄 ฟังก์ชันสำหรับตัดเกรด A-F ตามเอกสาร Security Planning มทส.[cite: 1]
+const calculateGrade = (score, isAutoFail = false) => {
+  if (isAutoFail || score < 30) return 'F'; // 0-29 หรือโดน A01 Auto-fail[cite: 1]
+  if (score >= 90) return 'A';              // 90-100 ปลอดภัย[cite: 1]
+  if (score >= 70) return 'B';              // 70-89 พอใช้ได้[cite: 1]
+  if (score >= 50) return 'C';              // 50-69 ควรแก้ไข[cite: 1]
+  return 'D';                               // 30-49 เสี่ยงสูง[cite: 1]
 };
 
 // 🔒 Validate โดเมนก่อนนำไปใช้กับคำสั่งระบบ ป้องกัน Command Injection
@@ -35,7 +38,44 @@ const runCommand = (command, args = [], timeoutMs = 60000) => {
   });
 };
 
-// 🌐 เช็ค HTTP Security Headers เบื้องต้น (ช่วยครอบคลุม A05: Security Misconfiguration)
+// ⚡ 🐝 ฟังก์ชันรัน OWASP ZAP ผ่าน Docker และส่งออกผลลัพธ์เป็น JSON
+const runZapDocker = (targetUrl, scanId) => {
+  return new Promise((resolve) => {
+    const reportDir = path.join(os.tmpdir(), 'safescan_reports');
+    if (!fs.existsSync(reportDir)) fs.mkdirSync(reportDir, { recursive: true });
+
+    const reportFileName = `zap_${scanId}.json`;
+    const reportPath = path.join(reportDir, reportFileName);
+    const normalizedReportDir = reportDir.replace(/\\/g, '/');
+
+    const args = [
+      'run', '--rm',
+      '-v', `${normalizedReportDir}:/zap/wrk/:rw`,
+      '-t', 'zaproxy/zap-stable',
+      'zap-baseline.py',
+      '-t', targetUrl,
+      '-J', reportFileName
+    ];
+
+    console.log(`[Scan #${scanId}] ⚡ สั่งรัน OWASP ZAP Docker...`);
+
+    execFile('docker', args, { timeout: 180000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (fs.existsSync(reportPath)) {
+        try {
+          const rawData = fs.readFileSync(reportPath, 'utf-8');
+          const zapJson = JSON.parse(rawData);
+          fs.unlinkSync(reportPath);
+          return resolve({ success: true, data: zapJson, rawOutput: stdout || stderr });
+        } catch (e) {
+          return resolve({ success: false, data: null, rawOutput: stderr || e.message });
+        }
+      }
+      resolve({ success: false, data: null, rawOutput: stderr || error?.message || 'ZAP Report Not Found' });
+    });
+  });
+};
+
+// 🌐 เช็ค HTTP Security Headers เบื้องต้น
 const checkSecurityHeaders = async (url) => {
   try {
     const target = url.startsWith('http') ? url : `https://${url}`;
@@ -57,9 +97,12 @@ const checkSecurityHeaders = async (url) => {
     if (!headers.get('x-frame-options') && !headers.get('content-security-policy')) missing.push('Clickjacking-Protection');
     if (!headers.get('content-security-policy')) missing.push('CSP');
 
-    return { success: true, missingHeaders: missing, statusCode: response.status };
+    const serverBanner = headers.get('server');
+    const isBannerHidden = !serverBanner || !/\d/.test(serverBanner); // เช็คว่าซ่อนเวอร์ชันเซิร์ฟเวอร์หรือไม่
+
+    return { success: true, missingHeaders: missing, statusCode: response.status, isBannerHidden };
   } catch (err) {
-    return { success: false, error: err.message, missingHeaders: [] };
+    return { success: false, error: err.message, missingHeaders: [], isBannerHidden: false };
   }
 };
 
@@ -68,8 +111,6 @@ exports.startScan = async (req, res) => {
   try {
     const { url } = req.body;
     
-    // 🔍 1. ส่องโครงสร้างเพื่อหาพิกัดตัวแปรใน Console หลังบ้านอย่างละเอียด
-    console.log("=== [DEBUG] ส่องหาตำแหน่งข้อมูลผู้ใช้งานจากตรรกะ Middleware ===");
     const activeUserObject = req.user || req.userData || req.user_info || req.auth;
     const userId = activeUserObject 
       ? (activeUserObject.id || activeUserObject.userId || activeUserObject._id || activeUserObject.memberId) 
@@ -89,7 +130,6 @@ exports.startScan = async (req, res) => {
       return res.status(400).json({ message: 'รูปแบบ URL ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง' });
     }
 
-    // 3. บันทึกคิวเริ่มต้นใน MySQL ดึงไอดีที่ถูกต้องไปลงตาราง
     const [result] = await db.execute(
       'INSERT INTO scan_results (user_id, target_url, status) VALUES (?, ?, ?)',
       [userId, url, 'scanning']
@@ -98,21 +138,31 @@ exports.startScan = async (req, res) => {
 
     res.json({ success: true, message: 'ระบบกำลังเริ่มสแกนช่องโหว่เบื้องหลัง...', scanId });
 
-    // 4. 🚀 Run Tools 
+    // 🚀 สแกนจริงผ่านเอนจินทั้งสาม
     console.log(`[Scan #${scanId}] เริ่มต้นสแกนเป้าหมาย: ${targetDomain}`);
+    
     const nmapOutput = await runCommand('nmap', ['-Pn', '-F', '-sV', targetDomain], 90000);
     const sslyzeOutput = await runCommand('python', ['-m', 'sslyze', '--json_out', '-', targetDomain], 120000);
     const headerResult = await checkSecurityHeaders(url);
-    const zapOutput = "ZAP Scan Result Dummy (รอการคอนฟิกเพิ่มเติม)";
+    const zapTargetUrl = url.startsWith('http') ? url : `https://${url}`;
+    const zapRes = await runZapDocker(zapTargetUrl, scanId);
 
-    // 🧠 5. ADVANCED PARSER ENGINE
+    // 🧠 ADVANCED SCORING ENGINE (อ้างอิงตามเอกสาร Security Planning มทส.)[cite: 1]
     let criticalCount = 0; let highCount = 0; let mediumCount = 0; let lowCount = 0;
-    let hasA02Vulnerability = false; let hasA04Vulnerability = false; let hasA05Vulnerability = false;
+    
+    // ตัวแปรหมวด OWASP Top 10 (2025)[cite: 1]
+    let hasA01Vulnerability = false; // Broken Access Control (Auto-fail F)[cite: 1]
+    let hasA02Vulnerability = false; // Security Misconfiguration (0)[cite: 1]
+    let hasA03Vulnerability = false; // Software Supply Chain Failures (-15)[cite: 1]
+    let hasA04Vulnerability = false; // Cryptographic Failures (-12)[cite: 1]
+    let hasA05Vulnerability = false; // Injection (SQL, XSS, Command) (-25)[cite: 1]
+    let hasA07Vulnerability = false; // Authentication Failures (-20)[cite: 1]
+    let hasA10Vulnerability = false; // Mishandling Exception (-8)[cite: 1]
 
     const nmapLower = nmapOutput.toLowerCase();
     const sslyzeLower = sslyzeOutput.toLowerCase(); 
 
-    // --- 🔍 5.1 แกะวิเคราะห์ Nmap หาจำนวนพอร์ตเปิดจริงก่อนเป็นอันดับแรก ---
+    // --- 1. วิเคราะห์ Nmap ---
     const isNmapError = nmapLower.includes('command_error') || nmapLower.includes('not recognized');
     let totalOpenPorts = 0;
     let riskyPortsFound = [];
@@ -130,36 +180,25 @@ exports.startScan = async (req, res) => {
       });
     }
 
-    // --- 🚨 5.2 ตรวจจับ BLOCK FIREWALL ตัวจริง (ต้องไม่มีพอร์ตเปิดเลย และพบ Keyword บล็อก) ---
+    // ตรวจจับ Block Firewall
     const hasIgnoredStates = nmapLower.includes('ignored states') || nmapLower.includes('all 100 scanned ports');
     const isHostDown = nmapLower.includes('host seems down') || nmapLower.includes('0 hosts up');
 
     if (totalOpenPorts === 0 && (hasIgnoredStates || isHostDown)) {
-      console.log(`[Scan #${scanId}] 🚫 สแกนไม่สำเร็จแบบ 100%: ปลายทางปิดกั้นระบบ`);
-      
+      console.log(`[Scan #${scanId}] 🚫 ปลายทางปิดกั้นระบบ (Firewall Blocked)`);
       const owaspMapping = {
-        summary: { 
-          finalScore: 0, 
-          grade: 'N/A', 
-          error_reason: hasIgnoredStates 
-            ? 'ไม่สามารถตรวจสอบพอร์ตได้เนื่องจาก Firewall (เช่น Cloudflare, AWS WAF) ของเว็บไซต์ปลายทางปิดกั้นไอพีสแกนเนอร์โดยสมบูรณ์ (100 Filtered Ports)' 
-            : 'การเชื่อมต่อขัดข้อง: โฮสต์ปลายทางอาจปิดอยู่ หรือบล็อกแพ็กเก็ตตรวจสอบการเชื่อมต่ออย่างสมบูรณ์'
-        },
+        summary: { finalScore: 0, grade: 'N/A', error_reason: 'โฮสต์ปลายทางบล็อกแพ็กเก็ตสแกนเนอร์โดยสมบูรณ์' },
         vulnerabilities: { critical: 0, high: 0, medium: 0, low: 0 },
-        details: {
-          open_ports_detected: 0, risky_ports: [], is_nmap_success: false, is_sslyze_success: false, missing_security_headers: [],
-          A02: 'ล้มเหลว: โดน Firewall บล็อก', A04: 'ไม่สามารถระบุได้', A05: 'ไม่สามารถระบุได้'
-        }
+        details: { open_ports_detected: 0, risky_ports: [], A02: 'โดน Firewall บล็อก' }
       };
 
       await db.execute(
         `UPDATE scan_results SET status = 'failed', nmap_raw_output = ?, sslyze_raw_output = ?, zap_raw_output = ?, owasp_mapping = ? WHERE id = ?`,
-        [nmapOutput, sslyzeOutput, zapOutput, JSON.stringify(owaspMapping), scanId]
+        [nmapOutput, sslyzeOutput, "Firewall Blocked", JSON.stringify(owaspMapping), scanId]
       );
       return; 
     }
 
-    // --- 🔍 5.3 ประมวลผลคะแนน Nmap ต่อ (กรณีที่มีพอร์ตเปิดปกติ) ---
     if (riskyPortsFound.length > 0) {
       highCount += 1;
       hasA02Vulnerability = true;
@@ -168,71 +207,134 @@ exports.startScan = async (req, res) => {
       if (totalOpenPorts > 3) mediumCount += 1; else lowCount += 1;
     }
 
-    // --- 🔍 วิเคราะห์ประมวลผลฝั่ง SSLyze ---
+    // --- 2. วิเคราะห์ SSLyze (A04 Cryptographic Failures) ---[cite: 1]
     const isSSLyzeError = sslyzeLower.includes('command_error') || sslyzeLower.includes('unrecognized arguments');
-    let sslyzeParsed = null;
-    if (!isSSLyzeError) { try { sslyzeParsed = JSON.parse(sslyzeOutput); } catch (e) { sslyzeParsed = null; } }
+    let isSslValid = false;
 
-    if (!isSSLyzeError && sslyzeParsed) {
-      try {
-        const serverResult = sslyzeParsed.server_scan_results?.[0];
-        const connError = serverResult?.connectivity_error_trigger || serverResult?.scan_status;
-        if (!serverResult || connError === 'ERROR' || sslyzeOutput.length < 150) {
-          highCount += 1; hasA04Vulnerability = true;
-        } else {
-          const commands = serverResult.scan_result || {};
-          const certInfo = commands.certificate_info?.result;
-          const deployments = certInfo?.certificate_deployments || [];
-          const hasExpiredOrUntrusted = deployments.some(dep => dep.path_validation_results?.some(pv => !pv.was_validation_successful));
-          if (hasExpiredOrUntrusted) { highCount += 1; hasA04Vulnerability = true; }
-          const weakProtocols = ['ssl_2_0_cipher_suites', 'ssl_3_0_cipher_suites', 'tls_1_0_cipher_suites', 'tls_1_1_cipher_suites'];
-          const hasWeakProtocol = weakProtocols.some(proto => commands[proto]?.result?.accepted_cipher_suites?.length > 0);
-          if (hasWeakProtocol) { mediumCount += 1; hasA04Vulnerability = true; }
-        }
-      } catch (parseErr) { console.log(`[Scan #${scanId}] SSLyze JSON structure error`); }
-    } else if (!isSSLyzeError) {
-      if (sslyzeLower.includes('could not connect') || sslyzeLower.includes('rejected') || sslyzeLower.length < 150) { highCount += 1; hasA04Vulnerability = true; }
-      else if (sslyzeLower.includes('vulnerable') || sslyzeLower.includes('any_vulnerability_found')) { criticalCount += 1; hasA04Vulnerability = true; }
-      else if (sslyzeLower.includes('expired') || sslyzeLower.includes('not trusted') || sslyzeLower.includes('failed - certificate')) { highCount += 1; hasA04Vulnerability = true; }
-      else if (sslyzeLower.includes('failed') || sslyzeLower.includes('tls versions') || sslyzeLower.includes('weak')) { mediumCount += 1; hasA04Vulnerability = true; }
+    if (!isSSLyzeError) {
+      if (sslyzeLower.includes('vulnerable') || sslyzeLower.includes('heartbleed') || sslyzeLower.includes('poodle')) {
+        criticalCount += 1;
+        hasA04Vulnerability = true; // -12 Penalty[cite: 1]
+      } else if (sslyzeLower.includes('expired') || sslyzeLower.includes('not trusted')) {
+        highCount += 1;
+        hasA04Vulnerability = true; // -12 Penalty[cite: 1]
+      } else if (sslyzeLower.includes('tls 1.0') || sslyzeLower.includes('tls 1.1') || sslyzeLower.includes('weak')) {
+        mediumCount += 1;
+        hasA04Vulnerability = true; // -12 Penalty[cite: 1]
+      } else {
+        isSslValid = true; // SSL สมบูรณ์
+      }
     }
 
-    // --- 🔍 วิเคราะห์ HTTP Security Headers ---
+    // --- 3. วิเคราะห์ Security Headers ---
     if (headerResult.success && headerResult.missingHeaders.length > 0) {
-      hasA05Vulnerability = true;
+      hasA02Vulnerability = true;
       if (headerResult.missingHeaders.length >= 3) mediumCount += 1; else lowCount += 1;
     }
 
-    // คำนวณ Base Score & Penalty
-    const minusCritical = Math.min(90, criticalCount * 30); 
-    const minusHigh = Math.min(60, highCount * 15);         
-    const minusMedium = Math.min(35, mediumCount * 7);       
-    const minusLow = Math.min(15, lowCount * 3);             
-    const baseScore = Math.max(0, 100 - (minusCritical + minusHigh + minusMedium + minusLow)); 
+    // --- 4. วิเคราะห์ OWASP ZAP Alerts ---[cite: 1]
+    let zapAlertsSummary = [];
+    if (zapRes.success && zapRes.data) {
+      const alerts = zapRes.data.site?.[0]?.alerts || [];
+      alerts.forEach(alert => {
+        const risk = alert.riskcode;
+        const nameLower = alert.name.toLowerCase();
+        zapAlertsSummary.push({ name: alert.name, risk: alert.riskdesc });
 
+        // แยกหมวดหมู่ตาม OWASP 2025 ในเอกสาร[cite: 1]
+        if (nameLower.includes('access control') || nameLower.includes('ssrf') || nameLower.includes('idor')) {
+          hasA01Vulnerability = true; // A01: Auto-fail F[cite: 1]
+        }
+        if (nameLower.includes('sql') || nameLower.includes('xss') || nameLower.includes('command injection')) {
+          hasA05Vulnerability = true; // A05: Injection (-25)[cite: 1]
+        }
+        if (nameLower.includes('authentication') || nameLower.includes('session')) {
+          hasA07Vulnerability = true; // A07: Auth Failures (-20)[cite: 1]
+        }
+        if (nameLower.includes('outdated') || nameLower.includes('library') || nameLower.includes('vulnerable component')) {
+          hasA03Vulnerability = true; // A03: Supply Chain (-15)[cite: 1]
+        }
+        if (nameLower.includes('stack trace') || nameLower.includes('error handling') || nameLower.includes('exception')) {
+          hasA10Vulnerability = true; // A10: Exception Leak (-8)[cite: 1]
+        }
+
+        // สะสมระดับความรุนแรง (CVSS Severity Count)[cite: 1]
+        if (risk === '3') criticalCount += 1;
+        else if (risk === '2') highCount += 1;
+        else if (risk === '1') mediumCount += 1;
+        else lowCount += 1;
+      });
+    }
+
+    // 🧮 5. SCORING FORMULA (ตามเอกสาร 3 มิติ)[cite: 1]
+
+    // มิติที่ 1: Base Score Deduction (หักครั้งเดียวต่อระดับความรุนแรง ไม่คูณตามจำนวนที่เจอ)
+    const minusCritical = criticalCount > 0 ? 30 : 0; // เจอ critical กี่ตัวก็หักแค่ -30
+    const minusHigh = highCount > 0 ? 15 : 0;         // เจอ high กี่ตัวก็หักแค่ -15
+    const minusMedium = mediumCount > 0 ? 7 : 0;      // เจอ medium กี่ตัวก็หักแค่ -7
+    const minusLow = lowCount > 0 ? 3 : 0;            // เจอ low กี่ตัวก็หักแค่ -3
+
+    const totalBaseDeduction = minusCritical + minusHigh + minusMedium + minusLow;
+    const baseScore = Math.max(0, 100 - totalBaseDeduction); //[cite: 1]
+
+    // มิติที่ 2: Category Penalty[cite: 1]
     let totalPenalty = 0;
-    if (hasA04Vulnerability) totalPenalty += 12; 
-    if (hasA05Vulnerability) totalPenalty += 8;  
+    let isAutoFail = false;
 
-    const finalScore = Math.min(100, Math.max(0, baseScore - totalPenalty));
-    const grade = calculateGrade(finalScore);
+    if (hasA01Vulnerability) isAutoFail = true;          // A01 Broken Access Control -> F[cite: 1]
+    if (hasA05Vulnerability) totalPenalty += 25;         // A05 Injection -> -25[cite: 1]
+    if (hasA07Vulnerability) totalPenalty += 20;         // A07 Authentication Failures -> -20[cite: 1]
+    if (hasA03Vulnerability) totalPenalty += 15;         // A03 Supply Chain Failures -> -15[cite: 1]
+    if (hasA04Vulnerability) totalPenalty += 12;         // A04 Cryptographic Failures -> -12[cite: 1]
+    if (hasA10Vulnerability) totalPenalty += 8;          // A10 Exception Handling -> -8[cite: 1]
+
+    const categoryScore = Math.max(0, baseScore - totalPenalty); //[cite: 1]
+
+    // มิติที่ 3: Bonus Points (สูงสุดรวมไม่เกิน +15)[cite: 1]
+    let bonusPoints = 0;
+    if (url.startsWith('https') && isSslValid) bonusPoints += 5; // +5 HTTPS/SSL ผ่านทุก Check[cite: 1]
+    if (headerResult.missingHeaders.length === 0) bonusPoints += 5; // +5 Security Headers ครบ[cite: 1]
+    if (riskyPortsFound.length === 0 && totalOpenPorts <= 2) bonusPoints += 3; // +3 ไม่มีพอร์ตไม่จำเป็น[cite: 1]
+    if (headerResult.isBannerHidden) bonusPoints += 2; // +2 ซ่อน Server Banner[cite: 1]
+
+    // คะแนนสรุปสุดท้าย (Final Score)[cite: 1]
+    const finalScore = isAutoFail ? 0 : Math.min(100, categoryScore + bonusPoints); //[cite: 1]
+    const grade = calculateGrade(finalScore, isAutoFail); //[cite: 1]
 
     const owaspMapping = {
-      summary: { finalScore, grade, baseScore, totalPenalty},
+      summary: { 
+        finalScore, 
+        grade, 
+        baseScore, 
+        totalBaseDeduction,
+        totalPenalty, 
+        bonusPoints, 
+        isAutoFail 
+      },
       vulnerabilities: { critical: criticalCount, high: highCount, medium: mediumCount, low: lowCount },
       details: {
-        open_ports_detected: totalOpenPorts, risky_ports: riskyPortsFound, is_nmap_success: !isNmapError, is_sslyze_success: !isSSLyzeError, missing_security_headers: headerResult.missingHeaders,
-        A02: isNmapError ? 'ขัดข้อง' : (hasA02Vulnerability ? `พบการเปิดพอร์ต ${totalOpenPorts} พอร์ต` : 'ปลอดภัย'),
+        open_ports_detected: totalOpenPorts, 
+        risky_ports: riskyPortsFound, 
+        is_nmap_success: !isNmapError, 
+        is_sslyze_success: !isSSLyzeError, 
+        is_zap_success: zapRes.success,
+        missing_security_headers: headerResult.missingHeaders,
+        zap_alerts: zapAlertsSummary,
+        A01: hasA01Vulnerability ? 'พบความเสี่ยงร้ายแรง (Auto-fail F)' : 'ปลอดภัย',
+        A02: hasA02Vulnerability ? `พบการเปิดพอร์ต/ตั้งค่าเสี่ยง (${totalOpenPorts} พอร์ต)` : 'ปลอดภัย',
+        A03: hasA03Vulnerability ? 'พบซอฟต์แวร์/ไลบรารีล้าสมัย (Supply Chain Risk)' : 'ปลอดภัย',
         A04: hasA04Vulnerability ? 'พบปัญหาการเข้ารหัส SSL/TLS' : 'ปลอดภัย',
-        A05: hasA05Vulnerability ? `ขาด Headers: ${headerResult.missingHeaders.join(', ')}` : 'ปลอดภัย'
+        A05: hasA05Vulnerability ? 'พบช่องโหว่ Injection (SQL/XSS/Command)' : 'ปลอดภัย',
+        A07: hasA07Vulnerability ? 'พบจุดเสี่ยงระบบยืนยันตัวตน' : 'ปลอดภัย',
+        A10: hasA10Vulnerability ? 'พบข้อความ Error/Stack Trace หลุดออกมา' : 'ปลอดภัย'
       }
     };
 
     await db.execute(
       `UPDATE scan_results SET status = 'completed', nmap_raw_output = ?, sslyze_raw_output = ?, zap_raw_output = ?, owasp_mapping = ? WHERE id = ?`,
-      [nmapOutput, sslyzeOutput, zapOutput, JSON.stringify(owaspMapping), scanId]
+      [nmapOutput, sslyzeOutput, zapRes.rawOutput || JSON.stringify(zapAlertsSummary), JSON.stringify(owaspMapping), scanId]
     );
-    console.log(`[Scan #${scanId}] เสร็จสิ้น คะแนน: ${finalScore} | [${grade}]`);
+    console.log(`[Scan #${scanId}] เสร็จสิ้นสมบูรณ์ คะแนนสุทธิ: ${finalScore} | เกรด: [${grade}]`);
 
   } catch (error) {
     console.error('Scan Process Error:', error);
@@ -259,7 +361,6 @@ exports.publicScan = async (req, res) => {
     const nmapLower = nmapOutput.toLowerCase();
     const sslyzeLower = sslyzeOutput.toLowerCase();
 
-    // --- วิเคราะห์ Nmap ---
     const isNmapError = nmapLower.includes('command_error') || nmapLower.includes('not recognized');
     let totalOpenPorts = 0; let riskyPortsFound = [];
     const HIGH_RISK_PORTS = ['21', '23', '3389', '445', '135', '139'];
@@ -273,7 +374,6 @@ exports.publicScan = async (req, res) => {
       });
     }
 
-    // 🚨 ดักจับตัวบล็อกของฝั่ง Public Scan
     const hasIgnoredStates = nmapLower.includes('ignored states') || nmapLower.includes('all 100 scanned ports');
     if (totalOpenPorts === 0 && (hasIgnoredStates || nmapLower.includes('host seems down'))) {
       return res.json({
@@ -289,7 +389,6 @@ exports.publicScan = async (req, res) => {
       if (totalOpenPorts > 3) mediumCount += 1; else lowCount += 1;
     }
 
-    // --- วิเคราะห์ SSLyze ---
     const isSSLyzeError = sslyzeLower.includes('command_error') || sslyzeLower.includes('unrecognized arguments');
     let sslyzeParsed = null;
     if (!isSSLyzeError) { try { sslyzeParsed = JSON.parse(sslyzeOutput); } catch (e) { sslyzeParsed = null; } }
@@ -310,8 +409,14 @@ exports.publicScan = async (req, res) => {
       if (headerResult.missingHeaders.length >= 3) mediumCount += 1; else lowCount += 1;
     }
 
-    const baseScore = Math.max(0, 100 - (criticalCount*30 + highCount*15 + mediumCount*7 + lowCount*3));
-    const finalScore = Math.min(100, Math.max(0, baseScore - (hasA04Vulnerability?12:0) - (hasA05Vulnerability?8:0)));
+    // หักคะแนนครั้งเดียวต่อระดับความรุนแรง (ไม่คูณตามจำนวนที่เจอ) ให้สอดคล้องกับ startScan
+    const minusCritical = criticalCount > 0 ? 30 : 0;
+    const minusHigh = highCount > 0 ? 15 : 0;
+    const minusMedium = mediumCount > 0 ? 7 : 0;
+    const minusLow = lowCount > 0 ? 3 : 0;
+
+    const baseScore = Math.max(0, 100 - (minusCritical + minusHigh + minusMedium + minusLow));
+    const finalScore = Math.min(100, Math.max(0, baseScore - (hasA04Vulnerability?12:0) - (hasA05Vulnerability?25:0)));
     const grade = calculateGrade(finalScore);
 
     res.json({
@@ -331,15 +436,25 @@ exports.publicScan = async (req, res) => {
   }
 };
 
-// 🎯 ฟังก์ชันส่องสเตตัสเวอร์ชันเคลียร์บั๊ก [object Object]
+// 🎯 ฟังก์ชันส่องสเตตัส
 exports.getScanStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const [rows] = await db.execute('SELECT status, target_url, owasp_mapping, nmap_raw_output, sslyze_raw_output FROM scan_results WHERE id = ?', [id]);
+    const [rows] = await db.execute('SELECT status, target_url, owasp_mapping, nmap_raw_output, sslyze_raw_output, zap_raw_output FROM scan_results WHERE id = ?', [id]);
     if (rows.length === 0) return res.status(404).json({ message: 'ไม่พบข้อมูล' });
     let parsedData = rows[0].owasp_mapping;
     if (typeof parsedData === 'string') parsedData = JSON.parse(parsedData);
-    res.json({ success: true, status: rows[0].status, targetUrl: rows[0].target_url, data: parsedData, rawOutputs: { nmap: rows[0].nmap_raw_output, sslyze: rows[0].sslyze_raw_output } });
+    res.json({ 
+      success: true, 
+      status: rows[0].status, 
+      targetUrl: rows[0].target_url, 
+      data: parsedData, 
+      rawOutputs: { 
+        nmap: rows[0].nmap_raw_output, 
+        sslyze: rows[0].sslyze_raw_output,
+        zap: rows[0].zap_raw_output
+      } 
+    });
   } catch (error) { res.status(500).json({ message: 'เกิดข้อผิดพลาด' }); }
 };
 
