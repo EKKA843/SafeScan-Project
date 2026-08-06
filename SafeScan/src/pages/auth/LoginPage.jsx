@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Shield, Mail, Lock } from 'lucide-react';
-import { useNavigate } from 'react-router-dom'; // 👈 ดึงมารีไดเรกต์ย้ายหน้า
-import axios from 'axios'; // 👈 อิมพอร์ต Axios มาใช้ยิงหาหลังบ้าน
+import { Shield, Mail, Lock, ArrowRight } from 'lucide-react';
+import { useNavigate, Link } from 'react-router-dom';
+import axios from 'axios';
 import Navbar from '../../components/layout/Navbar';
 
 export default function LoginPage() {
@@ -9,33 +9,27 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
-  const [errorMsg, setErrorMsg] = useState(''); // เก็บข้อความแจ้งเตือนความผิดพลาด
+  const [errorMsg, setErrorMsg] = useState('');
 
-  // 🎯 ฟังก์ชันจัดการล็อกอินเมื่อกดปุ่ม เข้าสู่ระบบ
   const handleLogin = async (e) => {
     e.preventDefault();
-    setErrorMsg(''); // รีเซ็ตข้อความแจ้งเตือน
+    setErrorMsg('');
 
     try {
-      // 🚀 ยิง Axios POST นำส่งข้อมูลไปตรวจสอบที่หลังบ้าน พอร์ต 5000
       const response = await axios.post('http://localhost:5000/api/auth/login', {
         email: email,
         password: password
       });
 
       if (response.data.success) {
-        // 💾 บันทึก JWT Token และข้อมูลโปรไฟล์ผู้ใช้ลงในความจำเบราว์เซอร์
         localStorage.setItem('token', response.data.token);
         localStorage.setItem('user', JSON.stringify(response.data.user));
 
         alert('เข้าสู่ระบบสำเร็จ');
-        
-        // 🔄 สั่งเด้งข้ามมิติมาที่หน้าตรวจสอบเว็บไซต์ทันที
         navigate('/scan');
       }
 
     } catch (err) {
-      // ดักจับ Error กรณีรหัสผ่านไม่ตรง หรือไม่พบอีเมลใน MySQL
       if (err.response && err.response.data) {
         setErrorMsg(err.response.data.message);
       } else {
@@ -45,93 +39,95 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white font-sans antialiased relative overflow-hidden flex flex-col">
+    <div className="min-h-screen bg-slate-50 font-sans antialiased relative overflow-hidden flex flex-col">
       <Navbar />
 
-      {/* 🔵 ลูกเล่นวงกลมสีจาง (Glow Blur) */}
-      <div className="absolute bottom-[-10%] left-[-10%] w-200 h-200 bg-blue-400/10 rounded-full blur-[100px] pointer-events-none z-0" />
-      <div className="absolute top-[10%] right-[-10%] w-500 h-500 bg-indigo-400/10 rounded-full blur-[120px] pointer-events-none z-0" />
+      {/* Ambient background glow effects */}
+      <div className="absolute -top-20 -left-20 w-96 h-96 bg-blue-500/15 rounded-full blur-[100px] pointer-events-none z-0 animate-pulse-slow" />
+      <div className="absolute bottom-10 right-10 w-96 h-96 bg-indigo-500/15 rounded-full blur-[110px] pointer-events-none z-0" />
+
       <div className="flex-1 flex items-center justify-center px-6 py-12 relative z-10">
-        <div className="w-full max-w-120 bg-white rounded-3xl p-10 border border-slate-50 shadow-[0_20px_50px_rgba(148,163,184,0.15)] flex flex-col items-center">
+        <div className="w-full max-w-md bg-white/90 backdrop-blur-xl rounded-3xl p-8 md:p-10 border border-slate-200/80 shadow-2xl shadow-blue-500/10 flex flex-col items-center">
           
           <div className="flex flex-col items-center text-center gap-3 w-full mb-8">
-            <div className="flex items-center gap-2 text-blue-900 font-extrabold text-2xl">
-              <Shield className="w-7 h-7 text-blue-600 fill-blue-600/10" />
-              <span className="tracking-tight text-slate-900">Safe<span className="text-blue-600">Scan</span></span>
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-700 via-blue-600 to-cyan-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/25 mb-1">
+              <Shield className="w-6 h-6 fill-white/20 stroke-[2.5]" />
             </div>
-            <h2 className="text-2xl font-extrabold text-slate-900 mt-2">ยินดีต้อนรับกลับมา</h2>
-            <p className="text-sm text-slate-500 max-w-[320px]">
-              เข้าสู่แดชบอร์ดความปลอดภัยเพื่อเฝ้าระวังภัยคุกคาม
+
+            <h2 className="text-2xl font-black text-slate-900">ยินดีต้อนรับกลับมา</h2>
+            <p className="text-xs md:text-sm text-slate-500 font-medium">
+              เข้าสู่ระบบแดชบอร์ดความปลอดภัย SafeScan
             </p>
 
-            {/* ⚠️ กล่องแดงโชว์ Error แจ้งเตือนถ้ารหัสผ่านผิดหรือไม่มีผู้ใช้งานในระบบ */}
             {errorMsg && (
-              <div className="w-full mt-2 p-3 bg-red-50 border border-red-100 text-red-600 rounded-xl text-xs font-semibold text-center">
+              <div className="w-full mt-2 p-3 bg-rose-50 border border-rose-200 text-rose-600 rounded-xl text-xs font-bold text-center animate-in fade-in duration-200">
                 {errorMsg}
               </div>
             )}
           </div>
 
-          <form onSubmit={handleLogin} className="w-full space-y-5">
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">อีเมล</label>
-              <div className="w-full bg-[#f1f5f9]/50 rounded-xl border border-slate-100 p-3.5 flex items-center gap-3 focus-within:border-blue-500 focus-within:bg-white transition-all">
-                <Mail className="w-5 h-5 text-slate-400" />
+          <form onSubmit={handleLogin} className="w-full space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">อีเมล (Email)</label>
+              <div className="w-full bg-slate-50 rounded-xl border border-slate-200 p-3.5 flex items-center gap-3 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/15 focus-within:bg-white transition-all">
+                <Mail className="w-4 h-4 text-slate-400 shrink-0" />
                 <input 
                   type="email" 
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  placeholder="gmail@com.com"
-                  className="w-full text-slate-700 placeholder-slate-400 text-sm focus:outline-none bg-transparent"
+                  placeholder="name@example.com"
+                  className="w-full text-slate-800 placeholder-slate-400 text-sm focus:outline-none bg-transparent font-medium"
                   required
                 />
               </div>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-sm font-semibold text-slate-700">รหัสผ่าน</label>
-              <div className="w-full bg-[#f1f5f9]/50 rounded-xl border border-slate-100 p-3.5 flex items-center gap-3 focus-within:border-blue-500 focus-within:bg-white transition-all">
-                <Lock className="w-5 h-5 text-slate-400" />
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">รหัสผ่าน (Password)</label>
+              <div className="w-full bg-slate-50 rounded-xl border border-slate-200 p-3.5 flex items-center gap-3 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/15 focus-within:bg-white transition-all">
+                <Lock className="w-4 h-4 text-slate-400 shrink-0" />
                 <input 
                   type="password" 
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="********"
-                  className="w-full text-slate-700 placeholder-slate-400 text-sm focus:outline-none bg-transparent"
+                  placeholder="••••••••"
+                  className="w-full text-slate-800 placeholder-slate-400 text-sm focus:outline-none bg-transparent font-medium"
                   required
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-between text-sm pt-1">
-              <label className="flex items-center gap-2 cursor-pointer text-slate-600 font-medium select-none">
+            <div className="flex items-center justify-between text-xs pt-1">
+              <label className="flex items-center gap-2 cursor-pointer text-slate-600 font-semibold select-none">
                 <input 
                   type="checkbox" 
                   checked={rememberMe}
                   onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded border-slate-300 text-blue-900 focus:ring-blue-500 cursor-pointer"
+                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                 />
                 จดจำฉัน
               </label>
-              <a href="#forgot" className="text-blue-600 font-semibold hover:underline">
+              <a href="#forgot" className="text-blue-600 font-bold hover:underline">
                 ลืมรหัสผ่าน?
               </a>
             </div>
 
             <button 
               type="submit"
-              className="w-full py-4 bg-blue-900 hover:bg-blue-950 text-white font-bold text-sm rounded-xl shadow-md shadow-blue-900/10 transition-all active:scale-[0.99] mt-2"
+              className="w-full py-4 bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/35 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 mt-4"
             >
-              เข้าสู่ระบบ
+              <span>เข้าสู่ระบบ</span>
+              <ArrowRight className="w-4 h-4" />
             </button>
           </form>
 
-          <div className="w-full flex items-center justify-center gap-3 mt-8">
-            <div className="h-0.5 bg-slate-100 flex-1" />
-            <span className="text-xs font-semibold text-slate-400 bg-white px-2 tracking-wider uppercase">
-              LOG IN
+          <div className="w-full flex items-center justify-center gap-3 mt-6 pt-4 border-t border-slate-100">
+            <span className="text-xs font-semibold text-slate-500">
+              ยังไม่มีบัญชีใช้งาน?{' '}
+              <Link to="/register" className="text-blue-600 font-extrabold hover:underline">
+                สมัครสมาชิกที่นี่
+              </Link>
             </span>
-            <div className="h-0.5 bg-slate-100 flex-1" />
           </div>
 
         </div>

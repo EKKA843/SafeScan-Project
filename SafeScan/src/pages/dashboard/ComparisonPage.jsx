@@ -3,59 +3,110 @@ import {
   ShieldCheck, 
   ArrowRightLeft, 
   Loader2, 
-  Key, 
-  Server, 
-  FileCode, 
-  Trophy, 
-  Zap, 
-  AlertOctagon, 
+  Globe, 
   TrendingUp, 
+  TrendingDown,
   CheckCircle2, 
   XCircle, 
-  Sparkles 
+  Sparkles,
+  Tag,
+  Edit3,
+  Calendar,
+  AlertTriangle,
+  Server,
+  Flame,
+  Zap,
+  Info,
+  Clock,
+  ArrowRight
 } from 'lucide-react';
 import axios from 'axios';
 
 export default function ComparisonPage() {
-  const [historyList, setHistoryList] = useState([]);
-  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [websites, setWebsites] = useState([]);
+  const [selectedWebsite, setSelectedWebsite] = useState('');
   
-  const [selectedId1, setSelectedId1] = useState('');
-  const [selectedId2, setSelectedId2] = useState('');
-  
+  const [websiteVersions, setWebsiteVersions] = useState([]);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+
+  const [selectedVer1, setSelectedVer1] = useState('');
+  const [selectedVer2, setSelectedVer2] = useState('');
+
   const [compareData, setCompareData] = useState(null);
   const [loadingCompare, setLoadingCompare] = useState(false);
 
+  // Modal สำหรับแก้ไขชื่อเวอร์ชัน (Edit Version Tag Modal)
+  const [editingScan, setEditingScan] = useState(null);
+  const [newVersionNameInput, setNewVersionNameInput] = useState('');
+  const [updatingVersion, setUpdatingVersion] = useState(false);
+
+  // 1. ดึงรายการเว็บไซต์ของผู้ใช้ทั้งหมด
   useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        const response = await axios.get('http://localhost:5000/api/scan/history', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-        if (response.data?.success) {
-          setHistoryList(response.data.data.filter(item => item.status === 'completed'));
-        }
-      } catch (error) {
-        console.error('Error fetching history:', error);
-      } finally {
-        setLoadingHistory(false);
-      }
-    };
-    fetchHistory();
+    fetchUserWebsites();
   }, []);
 
+  const fetchUserWebsites = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/api/scan/history', {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (response.data?.success) {
+        // จัดกลุ่มประวัติแยกตาม targetUrl
+        const uniqueUrls = Array.from(new Set(response.data.data.map(item => item.targetUrl)));
+        setWebsites(uniqueUrls);
+        if (uniqueUrls.length > 0) {
+          setSelectedWebsite(uniqueUrls[0]);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching history:', error);
+    }
+  };
+
+  // 2. เมื่อผู้ใช้เลือกเว็บไซต์ ให้ดึงประวัติเวอร์ชันสแกนทั้งหมดของเว็บนั้น
+  useEffect(() => {
+    if (selectedWebsite) {
+      fetchWebsiteVersions(selectedWebsite);
+    }
+  }, [selectedWebsite]);
+
+  const fetchWebsiteVersions = async (url) => {
+    try {
+      setLoadingVersions(true);
+      setCompareData(null);
+      const response = await axios.get(`http://localhost:5000/api/scan/website-versions?url=${encodeURIComponent(url)}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      if (response.data?.success) {
+        const versions = response.data.data;
+        setWebsiteVersions(versions);
+        if (versions.length >= 2) {
+          setSelectedVer1(versions[0].id.toString());
+          setSelectedVer2(versions[versions.length - 1].id.toString());
+        } else if (versions.length === 1) {
+          setSelectedVer1(versions[0].id.toString());
+          setSelectedVer2('');
+        } else {
+          setSelectedVer1('');
+          setSelectedVer2('');
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching website versions:', error);
+    } finally {
+      setLoadingVersions(false);
+    }
+  };
+
+  // 3. เมื่อเลือก 2 เวอร์ชันครบ ให้เปรียบเทียบผลสแกน
   const handleCompare = async () => {
-    if (!selectedId1 || !selectedId2) return alert('กรุณาเลือกโดเมนที่ต้องการเปรียบเทียบให้ครบทั้ง 2 ช่องครับ!');
-    if (selectedId1 === selectedId2) return alert('กรุณาเลือกผลสแกนที่ต่างกันเพื่อเปรียบเทียบครับ!');
+    if (!selectedVer1 || !selectedVer2) return alert('กรุณาเลือกเวอร์ชันการสแกนให้ครบทั้ง 2 เวอร์ชันก่อนเปรียบเทียบ');
+    if (selectedVer1 === selectedVer2) return alert('กรุณาเลือกเวอร์ชันที่แตกต่างกันเพื่อเปรียบเทียบ');
 
     try {
       setLoadingCompare(true);
-      const response = await axios.get(`http://localhost:5000/api/scan/compare?id1=${selectedId1}&id2=${selectedId2}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
+      const response = await axios.get(`http://localhost:5000/api/scan/compare?id1=${selectedVer1}&id2=${selectedVer2}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       if (response.data?.success) {
         setCompareData(response.data.data);
@@ -68,430 +119,431 @@ export default function ComparisonPage() {
     }
   };
 
-  const getGradeStyle = (grade) => {
-    switch (grade) {
-      case 'A': return { bg: 'bg-emerald-500', text: 'text-emerald-400', border: 'border-emerald-500/30', shadow: 'shadow-emerald-500/20' };
-      case 'B': return { bg: 'bg-blue-600', text: 'text-blue-400', border: 'border-blue-500/30', shadow: 'shadow-blue-500/20' };
-      case 'C': return { bg: 'bg-amber-500', text: 'text-amber-400', border: 'border-amber-500/30', shadow: 'shadow-amber-500/20' };
-      case 'D': return { bg: 'bg-orange-500', text: 'text-orange-400', border: 'border-orange-500/30', shadow: 'shadow-orange-500/20' };
-      default: return { bg: 'bg-rose-600', text: 'text-rose-400', border: 'border-rose-500/30', shadow: 'shadow-rose-500/20' };
+  // 4. บันทึกแก้ไขชื่อเวอร์ชัน (Update Version Tag)
+  const handleUpdateVersionName = async () => {
+    if (!editingScan || !newVersionNameInput.trim()) return;
+    try {
+      setUpdatingVersion(true);
+      const response = await axios.put(`http://localhost:5000/api/scan/version/${editingScan.id}`, {
+        versionName: newVersionNameInput
+      }, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+
+      if (response.data?.success) {
+        setEditingScan(null);
+        fetchWebsiteVersions(selectedWebsite);
+        if (compareData) handleCompare();
+      }
+    } catch (error) {
+      console.error('Update version error:', error);
+      alert('เกิดข้อผิดพลาดในการบันทึกเวอร์ชัน');
+    } finally {
+      setUpdatingVersion(false);
     }
   };
 
-  // วิเคราะห์หาผู้ชนะ (Winner Analysis)
-  const score1 = compareData?.item1?.summary?.finalScore ?? 0;
-  const score2 = compareData?.item2?.summary?.finalScore ?? 0;
-  const scoreDiff = Math.abs(score1 - score2);
-  const winner = score1 > score2 ? 'item1' : score2 > score1 ? 'item2' : 'tie';
+  const getGradeBadgeClass = (grade) => {
+    switch (grade) {
+      case 'A': return 'bg-emerald-500 text-white shadow-emerald-500/20';
+      case 'B': return 'bg-blue-600 text-white shadow-blue-600/20';
+      case 'C': return 'bg-amber-500 text-white shadow-amber-500/20';
+      case 'D': return 'bg-orange-500 text-white shadow-orange-500/20';
+      default: return 'bg-rose-600 text-white shadow-rose-600/20';
+    }
+  };
 
-  const renderRemediationForTarget = (item, targetName, colorClass) => {
-    if (!item) return null;
-    const details = item.details || {};
-    
-    const hasPortIssue = details.A02 && details.A02 !== 'ปลอดภัย' && !details.A02.includes('ขัดข้อง');
-    const hasSslIssue = details.A04 && details.A04 !== 'ปลอดภัย' && !details.A04.includes('ขัดข้อง');
-    const hasHeaderIssue = details.A05 && details.A05 !== 'ปลอดภัย';
-    const isAllSafe = !hasPortIssue && !hasSslIssue && !hasHeaderIssue;
+  return (
+    <div className="w-full max-w-6xl mx-auto py-4 font-sans text-slate-800 space-y-8">
+      
+      {/* Header Banner */}
+      <div className="text-center space-y-2 max-w-xl mx-auto">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200/60 text-blue-700 text-xs font-extrabold shadow-xs mb-1">
+          <ArrowRightLeft className="w-3.5 h-3.5 text-blue-600" />
+          <span>Version Comparison & Progress Tracking</span>
+        </div>
+        <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+          เปรียบเทียบผลการสแกนตามเวอร์ชัน
+        </h1>
+        <p className="text-slate-500 text-xs md:text-sm font-medium leading-relaxed">
+          เลือกเว็บไซต์และเวอร์ชันการสแกนเพื่อติดตามพัฒนาการความปลอดภัย ตรวจสอบช่องโหว่ที่ถูกแก้ไข และคะแนนที่เพิ่มขึ้น
+        </p>
+      </div>
 
-    return (
-      <div className="bg-slate-900/60 backdrop-blur-md border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-          <div>
-            <span className={`text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider ${colorClass}`}>
-              {targetName}
-            </span>
-            <h4 className="font-extrabold text-slate-100 mt-2 break-all text-sm">{item.targetUrl}</h4>
+      {/* STEP 1: Select Website */}
+      <div className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-3xl p-6 md:p-8 shadow-xl shadow-blue-500/5 space-y-6">
+        <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
+          <div className="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-200/60 flex items-center justify-center text-blue-600">
+            <Globe className="w-5 h-5" />
           </div>
-          <span className="text-xs text-slate-400 font-medium">Auto Remediation</span>
+          <div>
+            <h3 className="text-base font-black text-slate-900">1. เลือกเว็บไซต์ที่ต้องการเปรียบเทียบ</h3>
+            <p className="text-xs text-slate-400 font-medium">เลือกเว็บไซต์ของท่านเพื่อดึงประวัติเวอร์ชันสแกนทั้งหมด</p>
+          </div>
         </div>
 
-        {isAllSafe ? (
-          <div className="flex flex-col items-center justify-center py-8 text-center space-y-2">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <h5 className="font-bold text-emerald-400 text-xs">เว็บไซต์นี้ปลอดภัยสมบูรณ์แบบ!</h5>
-            <p className="text-slate-500 text-[11px]">ไม่พบความเสี่ยงเชิงโครงสร้างจากการตรวจสอบ</p>
+        {websites.length > 0 ? (
+          <div className="w-full max-w-md">
+            <select
+              value={selectedWebsite}
+              onChange={(e) => setSelectedWebsite(e.target.value)}
+              className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all cursor-pointer"
+            >
+              {websites.map((url, idx) => (
+                <option key={idx} value={url}>{url}</option>
+              ))}
+            </select>
           </div>
         ) : (
-          <div className="space-y-4">
-            {hasPortIssue && (
-              <div className="bg-slate-950/80 p-4 rounded-2xl border border-rose-500/20 space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-rose-400">
-                  <Server className="w-4 h-4 shrink-0" />
-                  <span>วิธีปิดพอร์ตสุ่มเสี่ยง ({details.A02})</span>
-                </div>
-                <ul className="text-[11px] text-slate-400 space-y-1 list-disc pl-4 font-medium">
-                  <li>ย้ายพอร์ต SSH/RDP หนีจากพอร์ตมาตรฐาน</li>
-                  <li>ตั้งค่า Firewall จำกัดการเข้าถึงเฉพาะ Trusted IP</li>
-                </ul>
-                <div className="bg-black/90 text-emerald-400 font-mono text-[10px] p-2.5 rounded-xl border border-slate-800 select-all">
-                  sudo ufw deny 21/tcp && sudo ufw deny 3389/tcp
-                </div>
-              </div>
-            )}
+          <div className="bg-slate-50 rounded-2xl p-6 text-center text-slate-400 text-xs font-bold">
+            ยังไม่มีประวัติการสแกนเว็บไซต์ กรุณาทำการสแกนเว็บไซต์อย่างน้อย 1 ครั้ง
+          </div>
+        )}
 
-            {hasSslIssue && (
-              <div className="bg-slate-950/80 p-4 rounded-2xl border border-amber-500/20 space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
-                  <Key className="w-4 h-4 shrink-0" />
-                  <span>วิธีปรับปรุงมาตรฐาน SSL/TLS</span>
-                </div>
-                <ul className="text-[11px] text-slate-400 space-y-1 list-disc pl-4 font-medium">
-                  <li>ยกเลิกการรองรับ TLS 1.0 / TLS 1.1 ที่ล้าสมัย</li>
-                  <li>บังคับใช้เฉพาะมาตรฐาน TLS 1.2 / TLS 1.3 เท่านั้น</li>
-                </ul>
-                <div className="bg-black/90 text-emerald-400 font-mono text-[10px] p-2.5 rounded-xl border border-slate-800 select-all">
-                  ssl_protocols TLSv1.2 TLSv1.3;
-                </div>
-              </div>
-            )}
+        {/* STEP 2: Version Timeline */}
+        {selectedWebsite && (
+          <div className="space-y-4 pt-2">
+            <div className="flex justify-between items-center">
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-blue-600" />
+                ประวัติเวอร์ชันการสแกนทั้งหมดของ ({selectedWebsite})
+              </h4>
+              <span className="text-[10px] font-bold text-slate-400">
+                พบทั้งหมด {websiteVersions.length} เวอร์ชัน
+              </span>
+            </div>
 
-            {hasHeaderIssue && (
-              <div className="bg-slate-950/80 p-4 rounded-2xl border border-blue-500/20 space-y-2">
-                <div className="flex items-center gap-2 text-xs font-bold text-blue-400">
-                  <FileCode className="w-4 h-4 shrink-0" />
-                  <span>วิธีเติม HTTP Security Headers</span>
-                </div>
-                <p className="text-[10px] text-blue-300 bg-blue-950/60 p-2 rounded-lg border border-blue-800/40 font-semibold">
-                  ปัญหา: {details.A05}
-                </p>
-                <div className="bg-black/90 text-slate-300 font-mono text-[10px] p-2.5 rounded-xl border border-slate-800 space-y-0.5 select-all">
-                  <p className="text-slate-500">// Node.js Express (Helmet Security)</p>
-                  <p className="text-emerald-400">const helmet = require('helmet');</p>
-                  <p className="text-white">app.use(helmet());</p>
-                </div>
+            {loadingVersions ? (
+              <div className="flex items-center justify-center p-8 space-y-2">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+              </div>
+            ) : websiteVersions.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                {websiteVersions.map((v, idx) => (
+                  <div
+                    key={v.id}
+                    className={`p-4 rounded-2xl border transition-all cursor-pointer relative space-y-2 ${
+                      selectedVer1 === v.id.toString()
+                        ? 'bg-blue-50/90 border-blue-400 ring-2 ring-blue-500/20'
+                        : selectedVer2 === v.id.toString()
+                        ? 'bg-indigo-50/90 border-indigo-400 ring-2 ring-indigo-500/20'
+                        : 'bg-slate-50/80 border-slate-200/80 hover:border-blue-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-black text-blue-900 bg-blue-100/80 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        <Tag className="w-3 h-3 text-blue-600" />
+                        {v.versionName}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingScan(v);
+                          setNewVersionNameInput(v.versionName);
+                        }}
+                        className="text-slate-400 hover:text-blue-600 p-1 transition-colors"
+                        title="แก้ไขชื่อเวอร์ชัน"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-baseline justify-between pt-1">
+                      <div>
+                        <p className="text-xl font-black text-slate-900">{v.score} <span className="text-[10px] text-slate-400 font-normal">คะแนน</span></p>
+                        <p className="text-[10px] text-slate-400">{new Date(v.createdAt).toLocaleDateString('th-TH')}</p>
+                      </div>
+                      <span className={`w-7 h-7 rounded-xl text-xs font-black flex items-center justify-center ${getGradeBadgeClass(v.grade)}`}>
+                        {v.grade}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center text-amber-800 text-xs font-bold">
+                ไม่พบประวัติเวอร์ชันสแกนสำหรับเว็บไซต์นี้
               </div>
             )}
           </div>
         )}
-      </div>
-    );
-  };
 
-  return (
-    <div className="w-full max-w-6xl mx-auto py-8 px-4 font-sans text-slate-800">
-      
-      {/* 🚀 Header ล้ำยุค สไตล์ Cyber Dashboard */}
-      <div className="relative bg-gradient-to-r from-slate-950 via-blue-950 to-slate-900 rounded-3xl p-8 text-white shadow-2xl border border-slate-800 mb-8 overflow-hidden">
-        <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="space-y-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold bg-blue-500/20 text-blue-400 border border-blue-500/30">
-              <Sparkles className="w-3.5 h-3.5" /> Security Benchmark Intelligence
-            </span>
-            <h1 className="text-3xl font-black tracking-tight text-white flex items-center gap-3">
-              Cyber Security Battle Arena
-            </h1>
-            <p className="text-xs text-slate-400 max-w-xl leading-relaxed font-medium">
-              เปรียบเทียบมิติความเสี่ยงและช่องโหว่ทางเทคนิคระหว่าง 2 เว็บไซต์แบบ Head-to-Head ตามเกณฑ์มาตรฐานสากล OWASP Top 10
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* 📥 1. ส่วนเลือกตัวแปรโดเมน */}
-      <div className="bg-white rounded-3xl border border-slate-100 p-6 shadow-[0_15px_35px_rgba(148,163,184,0.08)] mb-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
-          
-          <div>
-            <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-wider">
-              🎯 เลือกเว็บไซต์เป้าหมายที่ 1 (Target A)
-            </label>
-            {loadingHistory ? (
-              <div className="py-3 text-slate-400 text-xs font-medium animate-pulse">กำลังโหลดประวัติ...</div>
-            ) : (
-              <select 
-                value={selectedId1}
-                onChange={(e) => setSelectedId1(e.target.value)}
-                className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:border-blue-600 focus:bg-white text-slate-800 font-bold text-xs transition-all cursor-pointer shadow-inner"
+        {/* STEP 3: Version Selection Controls */}
+        {websiteVersions.length >= 2 && (
+          <div className="pt-4 border-t border-slate-100 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-600" />
+                เวอร์ชันแรก / Baseline (เวอร์ชันฐานเดิม)
+              </label>
+              <select
+                value={selectedVer1}
+                onChange={(e) => setSelectedVer1(e.target.value)}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500 transition-all cursor-pointer"
               >
-                <option value="">-- เลือกเว็บไซต์รายการแรก --</option>
-                {historyList.map(item => (
-                  <option key={item.id} value={item.id} disabled={item.id === selectedId2}>
-                    {item.targetUrl} (เกรด {item.grade} - Score {item.finalScore})
+                {websiteVersions.map((v) => (
+                  <option key={v.id} value={v.id.toString()}>
+                    {v.versionName} — คะแนน: {v.score} | เกรด: {v.grade} ({new Date(v.createdAt).toLocaleDateString('th-TH')})
                   </option>
                 ))}
               </select>
-            )}
-          </div>
+            </div>
 
-          <div>
-            <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-wider">
-              🎯 เลือกเว็บไซต์เป้าหมายที่ 2 (Target B)
-            </label>
-            {loadingHistory ? (
-              <div className="py-3 text-slate-400 text-xs font-medium animate-pulse">กำลังโหลดประวัติ...</div>
-            ) : (
-              <select 
-                value={selectedId2}
-                onChange={(e) => setSelectedId2(e.target.value)}
-                className="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:border-blue-600 focus:bg-white text-slate-800 font-bold text-xs transition-all cursor-pointer shadow-inner"
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-indigo-600" />
+                เวอร์ชันเปรียบเทียบ / Target (เวอร์ชันถัดมา/ใหม่ล่าสุด)
+              </label>
+              <select
+                value={selectedVer2}
+                onChange={(e) => setSelectedVer2(e.target.value)}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-indigo-500 transition-all cursor-pointer"
               >
-                <option value="">-- เลือกเว็บไซต์รายการที่สอง --</option>
-                {historyList.map(item => (
-                  <option key={item.id} value={item.id} disabled={item.id === selectedId1}>
-                    {item.targetUrl} (เกรด {item.grade} - Score {item.finalScore})
+                {websiteVersions.map((v) => (
+                  <option key={v.id} value={v.id.toString()}>
+                    {v.versionName} — คะแนน: {v.score} | เกรด: {v.grade} ({new Date(v.createdAt).toLocaleDateString('th-TH')})
                   </option>
                 ))}
               </select>
-            )}
+            </div>
+
+            <div className="md:col-span-2 pt-2">
+              <button
+                onClick={handleCompare}
+                disabled={loadingCompare}
+                className="w-full py-3.5 bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs rounded-2xl shadow-lg shadow-blue-500/20 hover:shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {loadingCompare ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    กำลังประมวลผลเปรียบเทียบเวอร์ชัน...
+                  </>
+                ) : (
+                  <>
+                    <ArrowRightLeft className="w-4 h-4" />
+                    เริ่มเปรียบเทียบความแตกต่างทั้ง 2 เวอร์ชัน
+                  </>
+                )}
+              </button>
+            </div>
           </div>
-
-        </div>
-
-        <button 
-          onClick={handleCompare}
-          disabled={loadingCompare || !selectedId1 || !selectedId2}
-          className="w-full mt-6 py-4 bg-gradient-to-r from-blue-900 to-indigo-950 hover:from-blue-950 hover:to-slate-950 disabled:from-slate-200 disabled:to-slate-300 disabled:cursor-not-allowed text-white font-extrabold text-sm rounded-2xl transition-all shadow-xl shadow-blue-900/20 flex items-center justify-center gap-2.5 cursor-pointer active:scale-[0.99]"
-        >
-          {loadingCompare ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-              กำลังประมวลผลดวลเปรียบเทียบเชิงลึก...
-            </>
-          ) : (
-            <>
-              เริ่มการดวลประเมินความปลอดภัย (Start Battle)
-              <Zap className="w-4 h-4 fill-amber-400 text-amber-400" />
-            </>
-          )}
-        </button>
+        )}
       </div>
 
-      {/* 🆚 2. บอร์ดแสดงผลลัพธ์ประชันสุดว้าว */}
+      {/* COMPARISON RESULTS SECTION */}
       {compareData && (
-        <div className="space-y-8 animate-fadeIn">
-          
-          {/* 🏆 Winner Banner แจ้งเตือนผู้ชนะ */}
-          <div className="bg-gradient-to-r from-slate-900 via-slate-950 to-slate-900 border border-slate-800 rounded-3xl p-6 text-white flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
-            <div className="flex items-center gap-4">
-              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-                <Trophy className="w-7 h-7 animate-bounce" />
+        <div className="space-y-6 animate-in fade-in duration-300">
+
+          {/* Banner Score Progression */}
+          <div className={`rounded-3xl p-6 md:p-8 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 ${
+            compareData.isImproved 
+              ? 'bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 border border-emerald-500/30' 
+              : compareData.scoreDiff < 0
+              ? 'bg-gradient-to-r from-rose-900 via-red-900 to-slate-900 border border-rose-500/30'
+              : 'bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 border border-blue-500/30'
+          }`}>
+            <div className="space-y-2 text-center md:text-left">
+              <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-300 bg-white/10 px-3 py-1 rounded-full border border-white/10">
+                Version Progress Analytics
+              </span>
+              <h2 className="text-2xl md:text-3xl font-black text-white">
+                {compareData.isImproved 
+                  ? `คะแนนเพิ่มขึ้น +${compareData.scoreDiff} คะแนน! 🚀` 
+                  : compareData.scoreDiff < 0
+                  ? `คะแนนลดลง ${compareData.scoreDiff} คะแนน ⚠️`
+                  : 'คะแนนคงเดิม ไม่พบความเปลี่ยนแปลง'}
+              </h2>
+              <p className="text-xs text-slate-300 font-medium">
+                เปรียบเทียบจาก {compareData.item1.versionName} ({compareData.item1.summary.finalScore} แต้ม) ➔ {compareData.item2.versionName} ({compareData.item2.summary.finalScore} แต้ม)
+              </p>
+            </div>
+
+            <div className="flex items-center gap-4 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10 shrink-0">
+              <div className="text-center">
+                <p className="text-[9px] font-bold text-slate-300 uppercase">Baseline</p>
+                <div className={`w-10 h-10 rounded-xl text-xs font-black flex items-center justify-center mt-1 ${getGradeBadgeClass(compareData.item1.summary.grade)}`}>
+                  {compareData.item1.summary.grade}
+                </div>
               </div>
-              <div>
-                <span className="text-[10px] font-black uppercase tracking-widest text-amber-400 block">Comparison Conclusion</span>
-                <h3 className="text-lg font-black text-white mt-0.5">
-                  {winner === 'tie' 
-                    ? 'ทั้งสองเว็บไซต์มีระดับความปลอดภัยเท่ากันพอดี!' 
-                    : `${winner === 'item1' ? compareData.item1.targetUrl : compareData.item2.targetUrl} มีความปลอดภัยสูงกว่า!`}
-                </h3>
-                <p className="text-xs text-slate-400 font-medium mt-1">
-                  ส่วนต่างคะแนนความมั่นคงปลอดภัย: <span className="text-emerald-400 font-bold">+{scoreDiff} คะแนน</span>
-                </p>
+              <ArrowRight className="w-5 h-5 text-white/70" />
+              <div className="text-center">
+                <p className="text-[9px] font-bold text-slate-300 uppercase">Target</p>
+                <div className={`w-10 h-10 rounded-xl text-xs font-black flex items-center justify-center mt-1 ${getGradeBadgeClass(compareData.item2.summary.grade)}`}>
+                  {compareData.item2.summary.grade}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* 📊 Cards เปรียบเทียบคะแนนคู่ขนาน (Side-by-Side Hero Cards) */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* 3 Vulnerability Progress Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             
-            {/* Target A Card */}
-            <div className={`bg-white rounded-3xl border ${winner === 'item1' ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-100'} p-6 shadow-lg relative overflow-hidden flex flex-col justify-between`}>
-              {winner === 'item1' && (
-                <div className="absolute top-0 right-0 bg-blue-600 text-white text-[9px] font-black uppercase px-4 py-1 rounded-bl-xl tracking-wider">
-                  Winner
-                </div>
+            {/* Card 1: Fixed Vulnerabilities */}
+            <div className="bg-white/90 backdrop-blur-xl border border-emerald-200/80 rounded-3xl p-5 shadow-sm space-y-3">
+              <div className="flex items-center gap-2 pb-2 border-b border-emerald-100">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                <h4 className="text-xs font-extrabold text-slate-900">
+                  ช่องโหว่ที่แก้ไขสำเร็จ ({compareData.fixedIssues.length} รายการ)
+                </h4>
+              </div>
+              {compareData.fixedIssues.length > 0 ? (
+                <ul className="space-y-2">
+                  {compareData.fixedIssues.map((item, idx) => (
+                    <li key={idx} className="bg-emerald-50/80 p-2.5 rounded-xl border border-emerald-200/60 text-xs font-semibold text-emerald-950 flex items-start justify-between">
+                      <span>{item.label}</span>
+                      <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md shrink-0">FIXED</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[11px] text-slate-400 font-medium text-center py-3">ไม่มีรายการช่องโหว่เดิมที่ถูกแก้ไขเพิ่มเติม</p>
               )}
-              
-              <div>
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2.5 py-1 rounded-md uppercase tracking-wider">Target A</span>
-                    <h3 className="text-lg font-black text-slate-900 mt-2 break-all">{compareData.item1?.targetUrl}</h3>
-                  </div>
-                  <div className={`w-16 h-16 rounded-2xl border flex flex-col items-center justify-center font-black ${getGradeStyle(compareData.item1?.summary?.grade).bg} text-white shadow-lg`}>
-                    <span className="text-2xl leading-none">{compareData.item1?.summary?.grade}</span>
-                    <span className="text-[8px] font-bold uppercase opacity-80 mt-1">Grade</span>
-                  </div>
-                </div>
-
-                {/* Progress Bar Score */}
-                <div className="space-y-2 mb-6">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-slate-400">Security Score:</span>
-                    <span className="text-slate-900 font-black text-base">{compareData.item1?.summary?.finalScore} / 100</span>
-                  </div>
-                  <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden p-0.5">
-                    <div 
-                      className={`h-full rounded-full transition-all duration-1000 ${getGradeStyle(compareData.item1?.summary?.grade).bg}`}
-                      style={{ width: `${compareData.item1?.summary?.finalScore}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Vulnerability Counts */}
-                <div className="grid grid-cols-4 gap-2 text-center text-[10px] font-black mb-6">
-                  <div className="bg-rose-50 text-rose-600 p-2.5 rounded-xl border border-rose-100">Critical: {compareData.item1?.vulnerabilities?.critical}</div>
-                  <div className="bg-orange-50 text-orange-600 p-2.5 rounded-xl border border-orange-100">High: {compareData.item1?.vulnerabilities?.high}</div>
-                  <div className="bg-amber-50 text-amber-600 p-2.5 rounded-xl border border-amber-100">Med: {compareData.item1?.vulnerabilities?.medium}</div>
-                  <div className="bg-blue-50 text-blue-600 p-2.5 rounded-xl border border-blue-100">Low: {compareData.item1?.vulnerabilities?.low}</div>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-slate-100 text-xs space-y-2 font-medium">
-                <div className="flex justify-between p-2 rounded-lg bg-slate-50">
-                  <span className="text-slate-400 font-bold">Port Check:</span>
-                  <span className="text-slate-800 font-bold">{compareData.item1?.details?.A02}</span>
-                </div>
-                <div className="flex justify-between p-2 rounded-lg bg-slate-50">
-                  <span className="text-slate-400 font-bold">SSL/TLS Cert:</span>
-                  <span className="text-slate-800 font-bold">{compareData.item1?.details?.A04}</span>
-                </div>
-              </div>
             </div>
 
-            {/* Target B Card */}
-            <div className={`bg-white rounded-3xl border ${winner === 'item2' ? 'border-indigo-500 ring-2 ring-indigo-500/20' : 'border-slate-100'} p-6 shadow-lg relative overflow-hidden flex flex-col justify-between`}>
-              {winner === 'item2' && (
-                <div className="absolute top-0 right-0 bg-indigo-600 text-white text-[9px] font-black uppercase px-4 py-1 rounded-bl-xl tracking-wider">
-                  Winner
-                </div>
+            {/* Card 2: New Vulnerabilities */}
+            <div className="bg-white/90 backdrop-blur-xl border border-rose-200/80 rounded-3xl p-5 shadow-sm space-y-3">
+              <div className="flex items-center gap-2 pb-2 border-b border-rose-100">
+                <AlertTriangle className="w-5 h-5 text-rose-500" />
+                <h4 className="text-xs font-extrabold text-slate-900">
+                  ช่องโหว่ใหม่ที่ตรวจพบ ({compareData.newIssues.length} รายการ)
+                </h4>
+              </div>
+              {compareData.newIssues.length > 0 ? (
+                <ul className="space-y-2">
+                  {compareData.newIssues.map((item, idx) => (
+                    <li key={idx} className="bg-rose-50/80 p-2.5 rounded-xl border border-rose-200/60 text-xs font-semibold text-rose-950 flex items-start justify-between">
+                      <span>{item.label}</span>
+                      <span className="text-[10px] font-black text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md shrink-0">NEW</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[11px] text-emerald-600 font-bold text-center py-3">🎉 ไม่พบช่องโหว่เกิดขึ้นใหม่ในเวอร์ชันนี้</p>
               )}
+            </div>
 
-              <div>
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <span className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2.5 py-1 rounded-md uppercase tracking-wider">Target B</span>
-                    <h3 className="text-lg font-black text-slate-900 mt-2 break-all">{compareData.item2?.targetUrl}</h3>
-                  </div>
-                  <div className={`w-16 h-16 rounded-2xl border flex flex-col items-center justify-center font-black ${getGradeStyle(compareData.item2?.summary?.grade).bg} text-white shadow-lg`}>
-                    <span className="text-2xl leading-none">{compareData.item2?.summary?.grade}</span>
-                    <span className="text-[8px] font-bold uppercase opacity-80 mt-1">Grade</span>
-                  </div>
-                </div>
-
-                {/* Progress Bar Score */}
-                <div className="space-y-2 mb-6">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-slate-400">Security Score:</span>
-                    <span className="text-slate-900 font-black text-base">{compareData.item2?.summary?.finalScore} / 100</span>
-                  </div>
-                  <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden p-0.5">
-                    <div 
-                      className={`h-full rounded-full transition-all duration-1000 ${getGradeStyle(compareData.item2?.summary?.grade).bg}`}
-                      style={{ width: `${compareData.item2?.summary?.finalScore}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Vulnerability Counts */}
-                <div className="grid grid-cols-4 gap-2 text-center text-[10px] font-black mb-6">
-                  <div className="bg-rose-50 text-rose-600 p-2.5 rounded-xl border border-rose-100">Critical: {compareData.item2?.vulnerabilities?.critical}</div>
-                  <div className="bg-orange-50 text-orange-600 p-2.5 rounded-xl border border-orange-100">High: {compareData.item2?.vulnerabilities?.high}</div>
-                  <div className="bg-amber-50 text-amber-600 p-2.5 rounded-xl border border-amber-100">Med: {compareData.item2?.vulnerabilities?.medium}</div>
-                  <div className="bg-blue-50 text-blue-600 p-2.5 rounded-xl border border-blue-100">Low: {compareData.item2?.vulnerabilities?.low}</div>
-                </div>
+            {/* Card 3: Unresolved Vulnerabilities */}
+            <div className="bg-white/90 backdrop-blur-xl border border-amber-200/80 rounded-3xl p-5 shadow-sm space-y-3">
+              <div className="flex items-center gap-2 pb-2 border-b border-amber-100">
+                <Clock className="w-5 h-5 text-amber-500" />
+                <h4 className="text-xs font-extrabold text-slate-900">
+                  ช่องโหว่ที่ยังค้างอยู่ ({compareData.unresolvedIssues.length} รายการ)
+                </h4>
               </div>
-
-              <div className="pt-4 border-t border-slate-100 text-xs space-y-2 font-medium">
-                <div className="flex justify-between p-2 rounded-lg bg-slate-50">
-                  <span className="text-slate-400 font-bold">Port Check:</span>
-                  <span className="text-slate-800 font-bold">{compareData.item2?.details?.A02}</span>
-                </div>
-                <div className="flex justify-between p-2 rounded-lg bg-slate-50">
-                  <span className="text-slate-400 font-bold">SSL/TLS Cert:</span>
-                  <span className="text-slate-800 font-bold">{compareData.item2?.details?.A04}</span>
-                </div>
-              </div>
+              {compareData.unresolvedIssues.length > 0 ? (
+                <ul className="space-y-2">
+                  {compareData.unresolvedIssues.map((item, idx) => (
+                    <li key={idx} className="bg-amber-50/80 p-2.5 rounded-xl border border-amber-200/60 text-xs font-semibold text-amber-950 flex items-start justify-between">
+                      <span>{item.label}</span>
+                      <span className="text-[10px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md shrink-0">PENDING</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-[11px] text-emerald-600 font-bold text-center py-3">ไม่มีรายการช่องโหว่ค้างชำระ</p>
+              )}
             </div>
 
           </div>
 
-          {/* ⚔️ Head-to-Head Feature Matrix Table (ตารางดวลฟีเจอร์) */}
-          <div className="bg-white rounded-3xl border border-slate-100 shadow-lg p-6 md:p-8">
-            <h3 className="text-base font-black text-slate-900 mb-6 flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-blue-600" /> ตารางเปรียบเทียบคุณสมบัติความปลอดภัย (1-on-1 Matrix)
+          {/* Detailed Version Matrix Comparison */}
+          <div className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-3xl p-6 md:p-8 shadow-xl shadow-blue-500/5 space-y-4">
+            <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+              <ArrowRightLeft className="w-4.5 h-4.5 text-blue-600" />
+              ตารางเปรียบเทียบรายละเอียดรายหมวด (Detailed Version Matrix)
             </h3>
 
-            <div className="overflow-x-auto rounded-2xl border border-slate-100">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-slate-50 text-slate-500 font-black border-b border-slate-100 uppercase tracking-wider">
+            <div className="overflow-x-auto rounded-2xl border border-slate-200/80">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-700 font-black border-b border-slate-200/80 uppercase">
                   <tr>
-                    <th className="p-4">หมวดการประเมิน</th>
-                    <th className="p-4 text-center">Target A ({compareData.item1?.targetUrl})</th>
-                    <th className="p-4 text-center">Target B ({compareData.item2?.targetUrl})</th>
+                    <th className="p-3.5">หมวดการประเมิน</th>
+                    <th className="p-3.5 bg-blue-50/50 text-blue-900">{compareData.item1.versionName} (Baseline)</th>
+                    <th className="p-3.5 bg-indigo-50/50 text-indigo-900">{compareData.item2.versionName} (Target)</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100 font-bold">
+                <tbody className="divide-y divide-slate-100 font-semibold text-slate-700">
                   <tr>
-                    <td className="p-4 text-slate-700">1. การเปิดพอร์ตระบบ (Nmap Port Scan)</td>
-                    <td className="p-4 text-center">
-                      {compareData.item1?.details?.A02?.includes('ปลอดภัย') ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-4 h-4" /> ปลอดภัย</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-rose-600"><XCircle className="w-4 h-4" /> พบพอร์ตเสี่ยง</span>
-                      )}
-                    </td>
-                    <td className="p-4 text-center">
-                      {compareData.item2?.details?.A02?.includes('ปลอดภัย') ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-4 h-4" /> ปลอดภัย</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-rose-600"><XCircle className="w-4 h-4" /> พบพอร์ตเสี่ยง</span>
-                      )}
-                    </td>
+                    <td className="p-3.5 font-bold text-slate-900">คะแนนสุทธิ (Final Score)</td>
+                    <td className="p-3.5 bg-blue-50/20 font-black text-blue-900 text-sm">{compareData.item1.summary.finalScore} แต้ม (เกรด {compareData.item1.summary.grade})</td>
+                    <td className="p-3.5 bg-indigo-50/20 font-black text-indigo-900 text-sm">{compareData.item2.summary.finalScore} แต้ม (เกรด {compareData.item2.summary.grade})</td>
                   </tr>
-
                   <tr>
-                    <td className="p-4 text-slate-700">2. ใบรับรอง SSL/TLS (SSLyze Analysis)</td>
-                    <td className="p-4 text-center">
-                      {compareData.item1?.details?.A04?.includes('ปลอดภัย') ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-4 h-4" /> ปลอดภัย</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-rose-600"><XCircle className="w-4 h-4" /> ใบรับรองมีปัญหา</span>
-                      )}
-                    </td>
-                    <td className="p-4 text-center">
-                      {compareData.item2?.details?.A04?.includes('ปลอดภัย') ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-4 h-4" /> ปลอดภัย</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-rose-600"><XCircle className="w-4 h-4" /> ใบรับรองมีปัญหา</span>
-                      )}
-                    </td>
+                    <td className="p-3.5 font-bold text-slate-900">พอร์ตเปิดสุ่มเสี่ยง (Nmap)</td>
+                    <td className="p-3.5 bg-blue-50/20">{compareData.item1.details.open_ports_detected ?? 0} พอร์ตเปิด</td>
+                    <td className="p-3.5 bg-indigo-50/20">{compareData.item2.details.open_ports_detected ?? 0} พอร์ตเปิด</td>
                   </tr>
-
                   <tr>
-                    <td className="p-4 text-slate-700">3. HTTP Security Headers (CSP, HSTS)</td>
-                    <td className="p-4 text-center">
-                      {compareData.item1?.details?.A05?.includes('ปลอดภัย') ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-4 h-4" /> มีครบถ้วน</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-rose-600"><XCircle className="w-4 h-4" /> ขาด Header สำคัญ</span>
-                      )}
-                    </td>
-                    <td className="p-4 text-center">
-                      {compareData.item2?.details?.A05?.includes('ปลอดภัย') ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-4 h-4" /> มีครบถ้วน</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-rose-600"><XCircle className="w-4 h-4" /> ขาด Header สำคัญ</span>
-                      )}
-                    </td>
+                    <td className="p-3.5 font-bold text-slate-900">สถานะ SSL/TLS (SSLyze)</td>
+                    <td className="p-3.5 bg-blue-50/20">{compareData.item1.details.is_sslyze_success ? 'ผ่านเกณฑ์ ปลอดภัย' : 'พบข้อผิดพลาด'}</td>
+                    <td className="p-3.5 bg-indigo-50/20">{compareData.item2.details.is_sslyze_success ? 'ผ่านเกณฑ์ ปลอดภัย' : 'พบข้อผิดพลาด'}</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3.5 font-bold text-slate-900">ไฟล์และคอนฟิกเสี่ยง (Nikto)</td>
+                    <td className="p-3.5 bg-blue-50/20">{compareData.item1.details.is_nikto_success ? 'สแกนผ่านเรียบร้อย' : 'พบประเด็นเสี่ยง'}</td>
+                    <td className="p-3.5 bg-indigo-50/20">{compareData.item2.details.is_nikto_success ? 'สแกนผ่านเรียบร้อย' : 'พบประเด็นเสี่ยง'}</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3.5 font-bold text-slate-900">Security Headers ที่ขาด</td>
+                    <td className="p-3.5 bg-blue-50/20">{compareData.item1.details.missing_security_headers?.join(', ') || 'ครบถ้วน'}</td>
+                    <td className="p-3.5 bg-indigo-50/20">{compareData.item2.details.missing_security_headers?.join(', ') || 'ครบถ้วน'}</td>
+                  </tr>
+                  <tr>
+                    <td className="p-3.5 font-bold text-slate-900">OWASP ZAP Alerts ตรวจพบ</td>
+                    <td className="p-3.5 bg-blue-50/20">{compareData.item1.details.zap_alerts?.length ?? 0} Alerts</td>
+                    <td className="p-3.5 bg-indigo-50/20">{compareData.item2.details.zap_alerts?.length ?? 0} Alerts</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* 🛠️ 4. Dynamic Remediation Section สไตล์ Cyber Security Dark Console */}
-          <div className="bg-slate-950 rounded-3xl p-8 border border-slate-800 shadow-2xl text-white">
-            <div className="border-b border-slate-800 pb-5 mb-6">
-              <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-full uppercase tracking-widest">
-                AI Cyber Remediation Engine
-              </span>
-              <h3 className="text-xl font-black text-white mt-3">คำแนะนำการปิดช่องโหว่เฉพาะโดเมน (Specific Remediation)</h3>
-              <p className="text-slate-400 text-xs mt-1">
-                สร้างสคริปต์แก้ไขเฉพาะเจาะจงตามผลลัพธ์การสแกนจริงของแต่ละเซิร์ฟเวอร์
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {renderRemediationForTarget(compareData.item1, "Target A", "bg-blue-500/20 text-blue-400 border border-blue-500/30")}
-              {renderRemediationForTarget(compareData.item2, "Target B", "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30")}
-            </div>
-          </div>
-
         </div>
       )}
+
+      {/* EDIT VERSION TAG MODAL */}
+      {editingScan && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+              <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+                <Tag className="w-4 h-4 text-blue-600" /> แก้ไขชื่อเวอร์ชัน (Version Tag)
+              </h3>
+              <button onClick={() => setEditingScan(null)} className="text-slate-400 hover:text-slate-600 font-bold">✕</button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <p className="text-slate-500 font-medium">
+                ระบุชื่อหรือแท็กเวอร์ชันใหม่สำหรับการสแกนของเว็บ <strong>{selectedWebsite}</strong>
+              </p>
+              <input
+                type="text"
+                value={newVersionNameInput}
+                onChange={(e) => setNewVersionNameInput(e.target.value)}
+                placeholder="เช่น v1.0 Baseline, v1.1 Fix SQLi, v2.0 Hardened"
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500 transition-all"
+              />
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex justify-end gap-2">
+              <button
+                onClick={() => setEditingScan(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-xl transition-all"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={handleUpdateVersionName}
+                disabled={updatingVersion}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5"
+              >
+                {updatingVersion ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'บันทึกเวอร์ชัน'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

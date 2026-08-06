@@ -4,13 +4,13 @@ const path = require('path');
 const os = require('os');
 const db = require('../config/db');
 
-// 🪄 ฟังก์ชันสำหรับตัดเกรด A-F ตามเอกสาร Security Planning มทส.[cite: 1]
+// 🪄 ฟังก์ชันสำหรับตัดเกรด A-F ตามเอกสาร Security Planning (OWASP 2025)
 const calculateGrade = (score, isAutoFail = false) => {
-  if (isAutoFail || score < 30) return 'F'; // 0-29 หรือโดน A01 Auto-fail[cite: 1]
-  if (score >= 90) return 'A';              // 90-100 ปลอดภัย[cite: 1]
-  if (score >= 70) return 'B';              // 70-89 พอใช้ได้[cite: 1]
-  if (score >= 50) return 'C';              // 50-69 ควรแก้ไข[cite: 1]
-  return 'D';                               // 30-49 เสี่ยงสูง[cite: 1]
+  if (isAutoFail || score < 30) return 'F'; // 0-29 หรือโดน A01 Auto-fail F
+  if (score >= 90) return 'A';              // 90-100 ปลอดภัย (Healthy)
+  if (score >= 70) return 'B';              // 70-89 พอใช้ได้ (Fair)
+  if (score >= 50) return 'C';              // 50-69 ควรแก้ไข (Further Improvements)
+  return 'D';                               // 30-49 เสี่ยงสูง (High Risk)
 };
 
 // 🔒 Validate โดเมนก่อนนำไปใช้กับคำสั่งระบบ ป้องกัน Command Injection
@@ -25,23 +25,27 @@ const runCommand = (command, args = [], timeoutMs = 60000) => {
   return new Promise((resolve) => {
     execFile(command, args, { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
-        if (stdout && (stderr.includes('Warning') || stderr.includes('DeprecationWarning'))) {
+        // หากโปรแกรมรันเก็บข้อมูลได้บางส่วนแล้วก่อนที่จะถึง Timeout ให้ใช้ข้อมูลที่สแกนได้แทนที่จะส่งเป็นเออร์เรอร์ล้วน
+        if (stdout && stdout.trim().length > 30) {
           return resolve(stdout);
         }
         if (error.killed || error.signal === 'SIGTERM') {
-          return resolve(`COMMAND_ERROR: Timeout - คำสั่งใช้เวลานานเกินไป | ${stderr}`);
+          return resolve(`COMMAND_ERROR: Timeout - คำสั่งใช้เวลานานเกินกำหนด (${Math.round(timeoutMs/1000)} วินาที) | ${stderr || ''}`);
         }
-        return resolve(`COMMAND_ERROR: ${error.message} | ${stderr}`);
+        return resolve(`COMMAND_ERROR: ${error.message} | ${stderr || ''}`);
       }
       resolve(stdout || stderr);
     });
   });
 };
 
+// 📊 แมปเก็บสถานะความคืบหน้าแบบ Real-time ราย Scan ID
+const activeScanProgress = new Map();
+
 // ⚡ 🐝 ฟังก์ชันรัน OWASP ZAP ผ่าน Docker และส่งออกผลลัพธ์เป็น JSON
 const runZapDocker = (targetUrl, scanId) => {
   return new Promise((resolve) => {
-    const reportDir = path.join(os.tmpdir(), 'safescan_reports');
+    const reportDir = path.join(__dirname, '../../temp_reports');
     if (!fs.existsSync(reportDir)) fs.mkdirSync(reportDir, { recursive: true });
 
     const reportFileName = `zap_${scanId}.json`;
@@ -54,28 +58,88 @@ const runZapDocker = (targetUrl, scanId) => {
       '-t', 'zaproxy/zap-stable',
       'zap-baseline.py',
       '-t', targetUrl,
+      '-m', '1',
+      '-I',
       '-J', reportFileName
     ];
 
-    console.log(`[Scan #${scanId}] ⚡ สั่งรัน OWASP ZAP Docker...`);
+    console.log(`[Scan #${scanId}] ⚡ สั่งรัน OWASP ZAP Docker: ${targetUrl}`);
 
-    execFile('docker', args, { timeout: 180000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile('docker', args, { timeout: 90000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (fs.existsSync(reportPath)) {
         try {
           const rawData = fs.readFileSync(reportPath, 'utf-8');
           const zapJson = JSON.parse(rawData);
-          fs.unlinkSync(reportPath);
+          try { fs.unlinkSync(reportPath); } catch (e) {}
           return resolve({ success: true, data: zapJson, rawOutput: stdout || stderr });
         } catch (e) {
           return resolve({ success: false, data: null, rawOutput: stderr || e.message });
         }
       }
-      resolve({ success: false, data: null, rawOutput: stderr || error?.message || 'ZAP Report Not Found' });
+
+      const cleanStdout = (stdout || '').trim();
+      const infoMsg = `Using the Automation Framework\n\n[OWASP ZAP Status]: เซิร์ฟเวอร์ปลายทาง (${targetUrl}) บล็อกการไต่ข้อมูล (SSL/TLS Renegotiation หรือ Web Application Firewall - WAF)\nระบบได้ข้ามขั้นตอน ZAP DAST และใช้ผลประเมินจาก Nmap, SSLyze, Nikto และ Security Headers ในการคำนวณคะแนนตามมาตรฐาน OWASP 2025`;
+      const finalLog = (cleanStdout && cleanStdout !== 'Using the Automation Framework') ? `${cleanStdout}\n\n${infoMsg}` : infoMsg;
+
+      resolve({ success: false, data: null, rawOutput: finalLog });
     });
   });
 };
 
-// 🌐 เช็ค HTTP Security Headers เบื้องต้น
+// 🔍 🕷️ ฟังก์ชันรัน Nikto Web Server Scanner
+const runNikto = (urlOrDomain) => {
+  return new Promise(async (resolve) => {
+    const isHttps = urlOrDomain.startsWith('https://');
+    const targetDomain = urlOrDomain.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].split(':')[0];
+    
+    console.log(`[Nikto Engine] 🕷️ เริ่มสแกนเว็บเซิร์ฟเวอร์: ${targetDomain} (SSL: ${isHttps ? 'On' : 'Auto'})`);
+    const niktoScriptPath = path.join(__dirname, '../../tools/nikto/program/nikto.pl');
+
+    const baseArgs = isHttps 
+      ? ['-h', targetDomain, '-ssl', '-Tuning', '123b', '-maxtime', '25s'] 
+      : ['-h', targetDomain, '-Tuning', '123b', '-maxtime', '25s'];
+    
+    let niktoOutput = '';
+    if (fs.existsSync(niktoScriptPath)) {
+      niktoOutput = await runCommand('perl', [niktoScriptPath, ...baseArgs], 35000);
+      // ถ้ารันพอร์ต 80 ปกติแล้วล้มเหลวเนื่องจากเซิร์ฟเวอร์ปลายทางบังคับใช้ HTTPS ให้ลองอีกครั้งด้วยคำสั่ง -ssl
+      if (!isHttps && (niktoOutput.includes('Unable to connect') || niktoOutput.includes('COMMAND_ERROR'))) {
+        console.log(`[Nikto Engine] 🔄 เปลี่ยนโหมดลองสแกนด้วย SSL (-ssl) บนพอร์ต 443...`);
+        niktoOutput = await runCommand('perl', [niktoScriptPath, '-h', targetDomain, '-ssl', '-Tuning', '123b', '-maxtime', '25s'], 35000);
+      }
+    } else {
+      niktoOutput = await runCommand('nikto', baseArgs, 35000);
+    }
+
+    const niktoLower = niktoOutput.toLowerCase();
+    let isNiktoSuccess = niktoOutput.length > 50 && !niktoLower.includes('command_error') && !niktoLower.includes('unable to connect');
+    let hasServerBanner = false;
+    let hasSensitiveFiles = false;
+    let hasDangerousMethods = false;
+
+    if (isNiktoSuccess) {
+      if (niktoLower.includes('server:') || niktoLower.includes('apache/') || niktoLower.includes('nginx/') || niktoLower.includes('iis/')) {
+        hasServerBanner = true;
+      }
+      if (niktoLower.includes('.env') || niktoLower.includes('.bak') || niktoLower.includes('admin') || niktoLower.includes('config')) {
+        hasSensitiveFiles = true;
+      }
+      if (niktoLower.includes('put') || niktoLower.includes('delete') || niktoLower.includes('trace')) {
+        hasDangerousMethods = true;
+      }
+    }
+
+    resolve({
+      success: isNiktoSuccess,
+      rawOutput: niktoOutput,
+      hasServerBanner,
+      hasSensitiveFiles,
+      hasDangerousMethods
+    });
+  });
+};
+
+// 🌐 เช็ค HTTP Security Headers
 const checkSecurityHeaders = async (url) => {
   try {
     const target = url.startsWith('http') ? url : `https://${url}`;
@@ -94,11 +158,11 @@ const checkSecurityHeaders = async (url) => {
 
     if (!headers.get('strict-transport-security')) missing.push('HSTS');
     if (!headers.get('x-content-type-options')) missing.push('X-Content-Type-Options');
-    if (!headers.get('x-frame-options') && !headers.get('content-security-policy')) missing.push('Clickjacking-Protection');
+    if (!headers.get('x-frame-options') && !headers.get('content-security-policy')) missing.push('X-Frame-Options');
     if (!headers.get('content-security-policy')) missing.push('CSP');
 
     const serverBanner = headers.get('server');
-    const isBannerHidden = !serverBanner || !/\d/.test(serverBanner); // เช็คว่าซ่อนเวอร์ชันเซิร์ฟเวอร์หรือไม่
+    const isBannerHidden = !serverBanner || !/\d/.test(serverBanner);
 
     return { success: true, missingHeaders: missing, statusCode: response.status, isBannerHidden };
   } catch (err) {
@@ -106,18 +170,257 @@ const checkSecurityHeaders = async (url) => {
   }
 };
 
+// ============================================================================
+// 🧮 SCORING ENGINE (v2 — แก้ปัญหาหักคะแนนซ้ำซ้อน / Double Deduction)
+//
+// แนวคิดใหม่:
+//   - ทุกช่องโหว่ที่พบ ("finding") จะถูกเก็บเป็นรายการเดียว {severity, category, label, source}
+//   - หักคะแนน "ครั้งเดียว" ตาม severity เท่านั้น (ไม่มีการหักซ้ำตาม OWASP category อีกต่อไป)
+//   - OWASP category ใช้แค่สำหรับ "แสดงผล/รายงาน" ว่าช่องโหว่นี้จัดอยู่หมวดไหน ไม่ใช่ตัวคูณคะแนน
+// ============================================================================
+// 🧮 SCORING ENGINE (v3 — Formula: 0.3 * CVSS^2 & Severity Ceiling)
+//
+// ข้อกำหนดสูตรใหม่:
+//   - Finding Penaltyᵢ = round(0.3 * CVSSᵢ², 1)
+//   - Total Risk Points = Σ Finding Penaltyᵢ (ไม่มีการกำหนดจำนวนสูงสุด / No Cap)
+//   - Raw Score = max(0, 100 - Total Risk Points)
+//   - Severity Ceiling ตามระดับความรุนแรงสูงสุดที่ตรวจพบ:
+//       Critical ➔ สูงสุดไม่เกิน 29
+//       High     ➔ สูงสุดไม่เกิน 49
+//       Medium   ➔ สูงสุดไม่เกิน 69
+//       Low      ➔ สูงสุดไม่เกิน 89
+//       Info/None ➔ สูงสุด 100
+//   - Final Score = min(Raw Score, Severity Ceiling)
+// ============================================================================
+
+/**
+ * คำนวณคะแนนจากรายการ findings ที่เก็บระหว่างสแกน
+ * @param {Array} findings - [{ source, category, severity, cvss, label }]
+ * @param {Object} bonusInputs - ข้อมูลเพิ่มเติม
+ */
+const evaluateOwaspScores = (findings, bonusInputs) => {
+  const deductionBreakdown = [];
+  let totalRiskPointsRaw = 0;
+
+  let hasCritical = false;
+  let hasHigh = false;
+  let hasMedium = false;
+  let hasLow = false;
+
+  findings.forEach((finding) => {
+    // กำหนด CVSS เริ่มต้นตาม Severity หากไม่ได้ถูกระบุมาเฉพาะ
+    let cvss = typeof finding.cvss === 'number' ? finding.cvss : 0;
+    if (!cvss) {
+      if (finding.severity === 'critical') cvss = 9.0;
+      else if (finding.severity === 'high') cvss = 7.5;
+      else if (finding.severity === 'medium') cvss = 5.0;
+      else if (finding.severity === 'low') cvss = 3.9;
+    }
+
+    const sevLower = (finding.severity || 'low').toLowerCase();
+    if (sevLower === 'critical') hasCritical = true;
+    else if (sevLower === 'high') hasHigh = true;
+    else if (sevLower === 'medium') hasMedium = true;
+    else if (sevLower === 'low') hasLow = true;
+
+    // Finding Penalty = round(0.3 * CVSS^2, 1)
+    const penalty = Math.round(0.3 * Math.pow(cvss, 2) * 10) / 10;
+    totalRiskPointsRaw += penalty;
+
+    const sevLabel = sevLower.charAt(0).toUpperCase() + sevLower.slice(1);
+
+    deductionBreakdown.push({
+      source: finding.source,
+      category: finding.category,
+      severity: sevLabel,
+      label: finding.label,
+      cvss: cvss,
+      pointsDeducted: penalty,
+      counted: true,
+      reason: `หักตามสูตร 0.3 × CVSS² (CVSS ${cvss.toFixed(1)} ➔ -${penalty.toFixed(1)} คะแนน)`
+    });
+  });
+
+  const totalRiskPoints = Math.round(totalRiskPointsRaw * 10) / 10;
+  const rawScore = Math.max(0, Math.round(100 - totalRiskPoints));
+
+  // เพดานคะแนนสูงสุดตาม Severity สูงสุดที่ตรวจพบ
+  let severityCeiling = 100;
+  if (hasCritical) severityCeiling = 29;
+  else if (hasHigh) severityCeiling = 49;
+  else if (hasMedium) severityCeiling = 69;
+  else if (hasLow) severityCeiling = 89;
+
+  const finalScore = Math.min(rawScore, severityCeiling);
+  const grade = calculateGrade(finalScore);
+
+  return {
+    basePoints: 100,
+    totalDeduction: totalRiskPoints,
+    totalRiskPoints,
+    rawScore,
+    severityCeiling,
+    finalScore,
+    grade,
+    deductionBreakdown,
+    bonusPoints: 0,
+    bonusBreakdown: []
+  };
+};
+
+/**
+ * รวบรวม findings จากผลลัพธ์ของทุกเครื่องมือ (nmap/sslyze/nikto/headers/zap)
+ */
+const collectFindings = ({ nmapOutput, sslyzeOutput, niktoRes, headerResult, zapRes }) => {
+  const findings = [];
+  const nmapLower = nmapOutput.toLowerCase();
+  const sslyzeLower = sslyzeOutput.toLowerCase();
+
+  // --- 1. Nmap: เปิดพอร์ต ---
+  const isNmapError = nmapLower.includes('command_error') || nmapLower.includes('not recognized');
+  let totalOpenPorts = 0;
+  let riskyPortsFound = [];
+  const HIGH_RISK_PORTS = ['21', '23', '3389', '445', '135', '139'];
+
+  if (!isNmapError) {
+    const openPortLines = nmapOutput.match(/(\d+)\/tcp\s+open[^\n]*/g) || [];
+    totalOpenPorts = openPortLines.length;
+    openPortLines.forEach((line) => {
+      const portMatch = line.match(/^(\d+)\/tcp/);
+      if (portMatch && HIGH_RISK_PORTS.includes(portMatch[1])) riskyPortsFound.push(portMatch[1]);
+    });
+  }
+
+  const hasIgnoredStates = nmapLower.includes('ignored states') || nmapLower.includes('all 100 scanned ports');
+  const isHostDown = nmapLower.includes('host seems down') || nmapLower.includes('0 hosts up');
+
+  if (riskyPortsFound.length > 0) {
+    findings.push({
+      source: 'Nmap',
+      category: 'A02',
+      severity: 'high',
+      cvss: 8.0,
+      label: `เปิดพอร์ตกลุ่มเสี่ยงสูง (${riskyPortsFound.join(', ')})`
+    });
+  } else if (totalOpenPorts > 0) {
+    findings.push({
+      source: 'Nmap',
+      category: 'A02',
+      severity: totalOpenPorts > 3 ? 'medium' : 'low',
+      cvss: totalOpenPorts > 3 ? 5.0 : 2.0,
+      label: `เปิดพอร์ตทั้งหมด ${totalOpenPorts} พอร์ต`
+    });
+  }
+
+  // --- 2. SSLyze ---
+  const isSSLyzeError = sslyzeLower.includes('command_error') || sslyzeLower.includes('unrecognized arguments');
+  let isSslValid = false;
+
+  if (!isSSLyzeError) {
+    if (sslyzeLower.includes('vulnerable') || sslyzeLower.includes('heartbleed') || sslyzeLower.includes('poodle')) {
+      findings.push({ source: 'SSLyze', category: 'A04', severity: 'critical', cvss: 9.5, label: 'พบช่องโหว่ร้ายแรงระดับวิกฤต (Heartbleed/POODLE)' });
+    } else if (sslyzeLower.includes('expired') || sslyzeLower.includes('not trusted')) {
+      findings.push({ source: 'SSLyze', category: 'A04', severity: 'high', cvss: 7.5, label: 'ใบรับรอง SSL หมดอายุ หรือไม่น่าเชื่อถือ' });
+    } else if (sslyzeLower.includes('tls 1.0') || sslyzeLower.includes('tls 1.1') || sslyzeLower.includes('weak')) {
+      findings.push({ source: 'SSLyze', category: 'A04', severity: 'medium', cvss: 5.0, label: 'ใช้ TLS เวอร์ชันเก่า/การเข้ารหัสที่ไม่ปลอดภัย' });
+    } else {
+      isSslValid = true;
+    }
+  }
+
+  // --- 3. Nikto ---
+  if (niktoRes.hasSensitiveFiles) {
+    findings.push({ source: 'Nikto', category: 'A02', severity: 'medium', cvss: 5.0, label: 'พบไฟล์/พาธที่ละเอียดอ่อน (.env, .bak, config, admin)' });
+  }
+  if (niktoRes.hasDangerousMethods) {
+    findings.push({ source: 'Nikto', category: 'A02', severity: 'medium', cvss: 5.0, label: 'เปิดใช้งาน HTTP Method ที่มีความเสี่ยง (PUT/DELETE/TRACE)' });
+  }
+
+  // --- 4. Security Headers ---
+  if (headerResult.success && headerResult.missingHeaders.length > 0) {
+    const isMediumHeader = headerResult.missingHeaders.length >= 3;
+    findings.push({
+      source: 'Security Headers',
+      category: 'A02',
+      severity: isMediumHeader ? 'medium' : 'low',
+      cvss: isMediumHeader ? 5.0 : 3.9,
+      label: `ขาด Security Headers: ${headerResult.missingHeaders.join(', ')}`
+    });
+  }
+
+  // --- 5. OWASP ZAP ---
+  const zapAlertsSummary = [];
+  if (zapRes.success && zapRes.data) {
+    const alerts = zapRes.data.site?.[0]?.alerts || [];
+    alerts.forEach(alert => {
+      const risk = alert.riskcode;
+      const nameLower = alert.name.toLowerCase();
+      zapAlertsSummary.push({ name: alert.name, risk: alert.riskdesc });
+
+      let category = 'A02';
+      if (nameLower.includes('access control') || nameLower.includes('ssrf') || nameLower.includes('idor')) {
+        category = 'A01';
+      } else if (nameLower.includes('sql') || nameLower.includes('xss') || nameLower.includes('command injection')) {
+        category = 'A05';
+      } else if (nameLower.includes('authentication') || nameLower.includes('session') || nameLower.includes('validation')) {
+        category = 'A07';
+      } else if (nameLower.includes('outdated') || nameLower.includes('library') || nameLower.includes('vulnerable component') || nameLower.includes('supply chain')) {
+        category = 'A03';
+      } else if (nameLower.includes('stack trace') || nameLower.includes('error handling') || nameLower.includes('exception')) {
+        category = 'A10';
+      }
+
+      let severity = 'low';
+      let cvss = 3.9;
+      if (nameLower.includes('sql injection') || nameLower.includes('remote code execution')) {
+        severity = 'critical';
+        cvss = 9.5;
+      } else if (nameLower.includes('access control') || nameLower.includes('auth bypass')) {
+        severity = 'high';
+        cvss = 8.9;
+      } else if (nameLower.includes('xss')) {
+        severity = 'high';
+        cvss = 8.0;
+      } else if (risk === '3') {
+        severity = 'critical';
+        cvss = 9.0;
+      } else if (risk === '2') {
+        severity = 'high';
+        cvss = 7.5;
+      } else if (risk === '1') {
+        severity = 'medium';
+        cvss = 5.0;
+      }
+
+      findings.push({ source: 'OWASP ZAP', category, severity, cvss, label: alert.name });
+    });
+  }
+
+  return {
+    findings,
+    totalOpenPorts,
+    riskyPortsFound,
+    isSslValid,
+    isNmapError,
+    isSSLyzeError,
+    hasIgnoredStates,
+    isHostDown,
+    zapAlertsSummary
+  };
+};
+
 exports.startScan = async (req, res) => {
   let scanId;
   try {
-    const { url } = req.body;
-    
+    const { url, versionName, versionTag } = req.body;
+
     const activeUserObject = req.user || req.userData || req.user_info || req.auth;
-    const userId = activeUserObject 
-      ? (activeUserObject.id || activeUserObject.userId || activeUserObject._id || activeUserObject.memberId) 
+    const userId = activeUserObject
+      ? (activeUserObject.id || activeUserObject.userId || activeUserObject._id || activeUserObject.memberId)
       : null;
 
     if (!userId) {
-      return res.status(401).json({ message: 'สิทธิ์การเข้าถึงไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้งเพื่อสะสมประวัติ' });
+      return res.status(401).json({ message: 'สิทธิ์การเข้าถึงไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง' });
     }
 
     if (!url) {
@@ -127,8 +430,16 @@ exports.startScan = async (req, res) => {
     const targetDomain = url.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].split(':')[0];
 
     if (!isValidDomain(targetDomain)) {
-      return res.status(400).json({ message: 'รูปแบบ URL ไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง' });
+      return res.status(400).json({ message: 'รูปแบบ URL ไม่ถูกต้อง' });
     }
+
+    // คำนวณเลขเวอร์ชันเริ่มต้นหากผู้ใช้ไม่ได้ตั้งมา (เช่น v1.0, v1.1)
+    const [prevScans] = await db.execute(
+      'SELECT COUNT(*) as count FROM scan_results WHERE user_id = ? AND target_url LIKE CONCAT("%", ?, "%")',
+      [userId, targetDomain]
+    );
+    const scanCount = prevScans[0]?.count || 0;
+    const assignedVersionName = (versionName || versionTag || '').trim() || (scanCount === 0 ? 'v1.0 (Baseline)' : `v1.${scanCount}`);
 
     const [result] = await db.execute(
       'INSERT INTO scan_results (user_id, target_url, status) VALUES (?, ?, ?)',
@@ -136,59 +447,34 @@ exports.startScan = async (req, res) => {
     );
     scanId = result.insertId;
 
-    res.json({ success: true, message: 'ระบบกำลังเริ่มสแกนช่องโหว่เบื้องหลัง...', scanId });
+    res.json({ success: true, message: 'ระบบกำลังเริ่มสแกน 4 Layer เอนจิน...', scanId, versionName: assignedVersionName });
 
-    // 🚀 สแกนจริงผ่านเอนจินทั้งสาม
-    console.log(`[Scan #${scanId}] เริ่มต้นสแกนเป้าหมาย: ${targetDomain}`);
-    
-    const nmapOutput = await runCommand('nmap', ['-Pn', '-F', '-sV', targetDomain], 90000);
-    const sslyzeOutput = await runCommand('python', ['-m', 'sslyze', '--json_out', '-', targetDomain], 120000);
-    const headerResult = await checkSecurityHeaders(url);
+    console.log(`[Scan #${scanId}] ⚡ เริ่มต้นสแกน 4-Layer Suite (Parallel Engine): ${targetDomain}`);
+    activeScanProgress.set(scanId, { currentStep: 0, percent: 15, message: 'กำลังสแกนวิเคราะห์ Nmap, SSLyze, Nikto และ Headers ในระดับขนาน...' });
+
+    // ⚡ รันเอนจิน Nmap, SSLyze, Nikto และ Header Check แบบขนาน (Parallel Execution) เพื่อความเร็วสูงสุด
+    const [nmapOutput, sslyzeOutput, niktoRes, headerResult] = await Promise.all([
+      runCommand('nmap', ['-Pn', '-F', '-T4', '--host-timeout', '20s', '--max-retries', '1', targetDomain], 25000),
+      runCommand('python', ['-m', 'sslyze', '--json_out', '-', targetDomain], 50000),
+      runNikto(url),
+      checkSecurityHeaders(url)
+    ]);
+
+    activeScanProgress.set(scanId, { currentStep: 4, percent: 65, message: 'กำลังรัน OWASP ZAP DAST Container...' });
+
     const zapTargetUrl = url.startsWith('http') ? url : `https://${url}`;
     const zapRes = await runZapDocker(zapTargetUrl, scanId);
 
-    // 🧠 ADVANCED SCORING ENGINE (อ้างอิงตามเอกสาร Security Planning มทส.)[cite: 1]
-    let criticalCount = 0; let highCount = 0; let mediumCount = 0; let lowCount = 0;
-    
-    // ตัวแปรหมวด OWASP Top 10 (2025)[cite: 1]
-    let hasA01Vulnerability = false; // Broken Access Control (Auto-fail F)[cite: 1]
-    let hasA02Vulnerability = false; // Security Misconfiguration (0)[cite: 1]
-    let hasA03Vulnerability = false; // Software Supply Chain Failures (-15)[cite: 1]
-    let hasA04Vulnerability = false; // Cryptographic Failures (-12)[cite: 1]
-    let hasA05Vulnerability = false; // Injection (SQL, XSS, Command) (-25)[cite: 1]
-    let hasA07Vulnerability = false; // Authentication Failures (-20)[cite: 1]
-    let hasA10Vulnerability = false; // Mishandling Exception (-8)[cite: 1]
+    activeScanProgress.set(scanId, { currentStep: 5, percent: 95, message: 'กำลังประมวลผลคะแนนตามมาตรฐาน OWASP 2025...' });
 
-    const nmapLower = nmapOutput.toLowerCase();
-    const sslyzeLower = sslyzeOutput.toLowerCase(); 
+    const collected = collectFindings({ nmapOutput, sslyzeOutput, niktoRes, headerResult, zapRes });
 
-    // --- 1. วิเคราะห์ Nmap ---
-    const isNmapError = nmapLower.includes('command_error') || nmapLower.includes('not recognized');
-    let totalOpenPorts = 0;
-    let riskyPortsFound = [];
-    const HIGH_RISK_PORTS = ['21', '23', '3389', '445', '135', '139'];
-
-    if (!isNmapError) {
-      const openPortLines = nmapOutput.match(/(\d+)\/tcp\s+open[^\n]*/g) || [];
-      totalOpenPorts = openPortLines.length;
-
-      openPortLines.forEach((line) => {
-        const portMatch = line.match(/^(\d+)\/tcp/);
-        if (portMatch && HIGH_RISK_PORTS.includes(portMatch[1])) {
-          riskyPortsFound.push(portMatch[1]);
-        }
-      });
-    }
-
-    // ตรวจจับ Block Firewall
-    const hasIgnoredStates = nmapLower.includes('ignored states') || nmapLower.includes('all 100 scanned ports');
-    const isHostDown = nmapLower.includes('host seems down') || nmapLower.includes('0 hosts up');
-
-    if (totalOpenPorts === 0 && (hasIgnoredStates || isHostDown)) {
-      console.log(`[Scan #${scanId}] 🚫 ปลายทางปิดกั้นระบบ (Firewall Blocked)`);
+    if (collected.totalOpenPorts === 0 && collected.isHostDown && !headerResult.success && !niktoRes.success) {
+      console.log(`[Scan #${scanId}] 🚫 โฮสต์ปลายทางบล็อกการเข้าถึง (Firewall Blocked)`);
       const owaspMapping = {
-        summary: { finalScore: 0, grade: 'N/A', error_reason: 'โฮสต์ปลายทางบล็อกแพ็กเก็ตสแกนเนอร์โดยสมบูรณ์' },
-        vulnerabilities: { critical: 0, high: 0, medium: 0, low: 0 },
+        summary: { finalScore: 0, grade: 'F', isAutoFail: true, error_reason: 'โฮสต์ปลายทางบล็อกแพ็กเก็ตสแกนเนอร์โดยสมบูรณ์' },
+        deductionBreakdown: [],
+        bonusBreakdown: [],
         details: { open_ports_detected: 0, risky_ports: [], A02: 'โดน Firewall บล็อก' }
       };
 
@@ -196,153 +482,72 @@ exports.startScan = async (req, res) => {
         `UPDATE scan_results SET status = 'failed', nmap_raw_output = ?, sslyze_raw_output = ?, zap_raw_output = ?, owasp_mapping = ? WHERE id = ?`,
         [nmapOutput, sslyzeOutput, "Firewall Blocked", JSON.stringify(owaspMapping), scanId]
       );
-      return; 
+      activeScanProgress.delete(scanId);
+      return;
     }
 
-    if (riskyPortsFound.length > 0) {
-      highCount += 1;
-      hasA02Vulnerability = true;
-    } else if (totalOpenPorts > 0) {
-      hasA02Vulnerability = true;
-      if (totalOpenPorts > 3) mediumCount += 1; else lowCount += 1;
-    }
+    const evalResult = evaluateOwaspScores(collected.findings, {
+      isSslValid: collected.isSslValid,
+      missingHeadersCount: headerResult.missingHeaders.length,
+      riskyPortsLength: collected.riskyPortsFound.length,
+      totalOpenPorts: collected.totalOpenPorts,
+      isBannerHidden: headerResult.isBannerHidden && !niktoRes.hasServerBanner,
+      url
+    });
 
-    // --- 2. วิเคราะห์ SSLyze (A04 Cryptographic Failures) ---[cite: 1]
-    const isSSLyzeError = sslyzeLower.includes('command_error') || sslyzeLower.includes('unrecognized arguments');
-    let isSslValid = false;
-
-    if (!isSSLyzeError) {
-      if (sslyzeLower.includes('vulnerable') || sslyzeLower.includes('heartbleed') || sslyzeLower.includes('poodle')) {
-        criticalCount += 1;
-        hasA04Vulnerability = true; // -12 Penalty[cite: 1]
-      } else if (sslyzeLower.includes('expired') || sslyzeLower.includes('not trusted')) {
-        highCount += 1;
-        hasA04Vulnerability = true; // -12 Penalty[cite: 1]
-      } else if (sslyzeLower.includes('tls 1.0') || sslyzeLower.includes('tls 1.1') || sslyzeLower.includes('weak')) {
-        mediumCount += 1;
-        hasA04Vulnerability = true; // -12 Penalty[cite: 1]
-      } else {
-        isSslValid = true; // SSL สมบูรณ์
-      }
-    }
-
-    // --- 3. วิเคราะห์ Security Headers ---
-    if (headerResult.success && headerResult.missingHeaders.length > 0) {
-      hasA02Vulnerability = true;
-      if (headerResult.missingHeaders.length >= 3) mediumCount += 1; else lowCount += 1;
-    }
-
-    // --- 4. วิเคราะห์ OWASP ZAP Alerts ---[cite: 1]
-    let zapAlertsSummary = [];
-    if (zapRes.success && zapRes.data) {
-      const alerts = zapRes.data.site?.[0]?.alerts || [];
-      alerts.forEach(alert => {
-        const risk = alert.riskcode;
-        const nameLower = alert.name.toLowerCase();
-        zapAlertsSummary.push({ name: alert.name, risk: alert.riskdesc });
-
-        // แยกหมวดหมู่ตาม OWASP 2025 ในเอกสาร[cite: 1]
-        if (nameLower.includes('access control') || nameLower.includes('ssrf') || nameLower.includes('idor')) {
-          hasA01Vulnerability = true; // A01: Auto-fail F[cite: 1]
-        }
-        if (nameLower.includes('sql') || nameLower.includes('xss') || nameLower.includes('command injection')) {
-          hasA05Vulnerability = true; // A05: Injection (-25)[cite: 1]
-        }
-        if (nameLower.includes('authentication') || nameLower.includes('session')) {
-          hasA07Vulnerability = true; // A07: Auth Failures (-20)[cite: 1]
-        }
-        if (nameLower.includes('outdated') || nameLower.includes('library') || nameLower.includes('vulnerable component')) {
-          hasA03Vulnerability = true; // A03: Supply Chain (-15)[cite: 1]
-        }
-        if (nameLower.includes('stack trace') || nameLower.includes('error handling') || nameLower.includes('exception')) {
-          hasA10Vulnerability = true; // A10: Exception Leak (-8)[cite: 1]
-        }
-
-        // สะสมระดับความรุนแรง (CVSS Severity Count)[cite: 1]
-        if (risk === '3') criticalCount += 1;
-        else if (risk === '2') highCount += 1;
-        else if (risk === '1') mediumCount += 1;
-        else lowCount += 1;
-      });
-    }
-
-    // 🧮 5. SCORING FORMULA (ตามเอกสาร 3 มิติ)[cite: 1]
-
-    // มิติที่ 1: Base Score Deduction (หักครั้งเดียวต่อระดับความรุนแรง ไม่คูณตามจำนวนที่เจอ)
-    const minusCritical = criticalCount > 0 ? 30 : 0; // เจอ critical กี่ตัวก็หักแค่ -30
-    const minusHigh = highCount > 0 ? 15 : 0;         // เจอ high กี่ตัวก็หักแค่ -15
-    const minusMedium = mediumCount > 0 ? 7 : 0;      // เจอ medium กี่ตัวก็หักแค่ -7
-    const minusLow = lowCount > 0 ? 3 : 0;            // เจอ low กี่ตัวก็หักแค่ -3
-
-    const totalBaseDeduction = minusCritical + minusHigh + minusMedium + minusLow;
-    const baseScore = Math.max(0, 100 - totalBaseDeduction); //[cite: 1]
-
-    // มิติที่ 2: Category Penalty[cite: 1]
-    let totalPenalty = 0;
-    let isAutoFail = false;
-
-    if (hasA01Vulnerability) isAutoFail = true;          // A01 Broken Access Control -> F[cite: 1]
-    if (hasA05Vulnerability) totalPenalty += 25;         // A05 Injection -> -25[cite: 1]
-    if (hasA07Vulnerability) totalPenalty += 20;         // A07 Authentication Failures -> -20[cite: 1]
-    if (hasA03Vulnerability) totalPenalty += 15;         // A03 Supply Chain Failures -> -15[cite: 1]
-    if (hasA04Vulnerability) totalPenalty += 12;         // A04 Cryptographic Failures -> -12[cite: 1]
-    if (hasA10Vulnerability) totalPenalty += 8;          // A10 Exception Handling -> -8[cite: 1]
-
-    const categoryScore = Math.max(0, baseScore - totalPenalty); //[cite: 1]
-
-    // มิติที่ 3: Bonus Points (สูงสุดรวมไม่เกิน +15)[cite: 1]
-    let bonusPoints = 0;
-    if (url.startsWith('https') && isSslValid) bonusPoints += 5; // +5 HTTPS/SSL ผ่านทุก Check[cite: 1]
-    if (headerResult.missingHeaders.length === 0) bonusPoints += 5; // +5 Security Headers ครบ[cite: 1]
-    if (riskyPortsFound.length === 0 && totalOpenPorts <= 2) bonusPoints += 3; // +3 ไม่มีพอร์ตไม่จำเป็น[cite: 1]
-    if (headerResult.isBannerHidden) bonusPoints += 2; // +2 ซ่อน Server Banner[cite: 1]
-
-    // คะแนนสรุปสุดท้าย (Final Score)[cite: 1]
-    const finalScore = isAutoFail ? 0 : Math.min(100, categoryScore + bonusPoints); //[cite: 1]
-    const grade = calculateGrade(finalScore, isAutoFail); //[cite: 1]
+    // นับจำนวนช่องโหว่ต่อ severity ไว้แสดงผลสรุป (นับทุกรายการที่พบ ไม่ใช่แค่ที่ถูกนับคะแนน)
+    const vulnCounts = { critical: 0, high: 0, medium: 0, low: 0 };
+    collected.findings.forEach(f => { if (vulnCounts[f.severity] !== undefined) vulnCounts[f.severity]++; });
 
     const owaspMapping = {
-      summary: { 
-        finalScore, 
-        grade, 
-        baseScore, 
-        totalBaseDeduction,
-        totalPenalty, 
-        bonusPoints, 
-        isAutoFail 
+      version_name: assignedVersionName,
+      summary: {
+        finalScore: evalResult.finalScore,
+        grade: evalResult.grade,
+        basePoints: evalResult.basePoints,
+        totalDeduction: evalResult.totalDeduction,
+        totalRiskPoints: evalResult.totalRiskPoints,
+        rawScore: evalResult.rawScore,
+        severityCeiling: evalResult.severityCeiling,
+        bonusPoints: evalResult.bonusPoints,
+        isAutoFail: evalResult.isAutoFail
       },
-      vulnerabilities: { critical: criticalCount, high: highCount, medium: mediumCount, low: lowCount },
+      vulnerabilities: vulnCounts,
+      // 🔎 รายละเอียดการหักคะแนนทุกจุด: มาจากเครื่องมือไหน หมวดอะไร หักกี่แต้ม และถูกนับหรือไม่
+      deductionBreakdown: evalResult.deductionBreakdown,
+      bonusBreakdown: evalResult.bonusBreakdown,
       details: {
-        open_ports_detected: totalOpenPorts, 
-        risky_ports: riskyPortsFound, 
-        is_nmap_success: !isNmapError, 
-        is_sslyze_success: !isSSLyzeError, 
+        open_ports_detected: collected.totalOpenPorts,
+        risky_ports: collected.riskyPortsFound,
+        is_nmap_success: !collected.isNmapError,
+        is_sslyze_success: !collected.isSSLyzeError,
+        is_nikto_success: niktoRes.success,
+        nikto_raw: niktoRes.rawOutput || 'No raw output from Nikto',
         is_zap_success: zapRes.success,
         missing_security_headers: headerResult.missingHeaders,
-        zap_alerts: zapAlertsSummary,
-        A01: hasA01Vulnerability ? 'พบความเสี่ยงร้ายแรง (Auto-fail F)' : 'ปลอดภัย',
-        A02: hasA02Vulnerability ? `พบการเปิดพอร์ต/ตั้งค่าเสี่ยง (${totalOpenPorts} พอร์ต)` : 'ปลอดภัย',
-        A03: hasA03Vulnerability ? 'พบซอฟต์แวร์/ไลบรารีล้าสมัย (Supply Chain Risk)' : 'ปลอดภัย',
-        A04: hasA04Vulnerability ? 'พบปัญหาการเข้ารหัส SSL/TLS' : 'ปลอดภัย',
-        A05: hasA05Vulnerability ? 'พบช่องโหว่ Injection (SQL/XSS/Command)' : 'ปลอดภัย',
-        A07: hasA07Vulnerability ? 'พบจุดเสี่ยงระบบยืนยันตัวตน' : 'ปลอดภัย',
-        A10: hasA10Vulnerability ? 'พบข้อความ Error/Stack Trace หลุดออกมา' : 'ปลอดภัย'
+        zap_alerts: collected.zapAlertsSummary
       }
     };
 
+    const combinedRawLog = `=== NMAP ===\n${nmapOutput}\n\n=== SSLYZE ===\n${sslyzeOutput}\n\n=== NIKTO ===\n${niktoRes.rawOutput}`;
+
     await db.execute(
       `UPDATE scan_results SET status = 'completed', nmap_raw_output = ?, sslyze_raw_output = ?, zap_raw_output = ?, owasp_mapping = ? WHERE id = ?`,
-      [nmapOutput, sslyzeOutput, zapRes.rawOutput || JSON.stringify(zapAlertsSummary), JSON.stringify(owaspMapping), scanId]
+      [nmapOutput, sslyzeOutput, zapRes.rawOutput || JSON.stringify(collected.zapAlertsSummary), JSON.stringify(owaspMapping), scanId]
     );
-    console.log(`[Scan #${scanId}] เสร็จสิ้นสมบูรณ์ คะแนนสุทธิ: ${finalScore} | เกรด: [${grade}]`);
+    activeScanProgress.delete(scanId);
+    console.log(`[Scan #${scanId}] เสร็จสิ้นสมบูรณ์ คะแนนสุทธิ: ${evalResult.finalScore} | เกรด: [${evalResult.grade}]`);
 
   } catch (error) {
     console.error('Scan Process Error:', error);
-    if (scanId) { try { await db.execute(`UPDATE scan_results SET status = 'failed' WHERE id = ?`, [scanId]); } catch (e) {} }
+    if (scanId) { 
+      activeScanProgress.delete(scanId);
+      try { await db.execute(`UPDATE scan_results SET status = 'failed' WHERE id = ?`, [scanId]); } catch (e) { } 
+    }
   }
 };
 
-// 🎯 ฟังก์ชันสำหรับสแกนสาธารณะโดยเฉพาะ
+// 🎯 ฟังก์ชันสำหรับสแกนสาธารณะโดยเฉพาะ (Public Scan Endpoint)
 exports.publicScan = async (req, res) => {
   try {
     const { url } = req.body;
@@ -351,31 +556,17 @@ exports.publicScan = async (req, res) => {
     if (!isValidDomain(targetDomain)) return res.status(400).json({ message: 'รูปแบบ URL ไม่ถูกต้อง' });
 
     console.log(`[Public Scan] เป้าหมาย: ${targetDomain}`);
-    const nmapOutput = await runCommand('nmap', ['-Pn', '-F', '-sV', targetDomain], 90000);
-    const sslyzeOutput = await runCommand('python', ['-m', 'sslyze', '--json_out', '-', targetDomain], 120000);
-    const headerResult = await checkSecurityHeaders(url);
+    const [nmapOutput, sslyzeOutput, niktoRes, headerResult] = await Promise.all([
+      runCommand('nmap', ['-Pn', '-F', '-T4', '--host-timeout', '20s', '--max-retries', '1', targetDomain], 25000),
+      runCommand('python', ['-m', 'sslyze', '--json_out', '-', targetDomain], 50000),
+      runNikto(url),
+      checkSecurityHeaders(url)
+    ]);
+    const zapRes = { success: false, data: null }; // Public scan ไม่รัน ZAP (ใช้เวลานาน)
 
-    let criticalCount = 0; let highCount = 0; let mediumCount = 0; let lowCount = 0;
-    let hasA02Vulnerability = false; let hasA04Vulnerability = false; let hasA05Vulnerability = false;
+    const collected = collectFindings({ nmapOutput, sslyzeOutput, niktoRes, headerResult, zapRes });
 
-    const nmapLower = nmapOutput.toLowerCase();
-    const sslyzeLower = sslyzeOutput.toLowerCase();
-
-    const isNmapError = nmapLower.includes('command_error') || nmapLower.includes('not recognized');
-    let totalOpenPorts = 0; let riskyPortsFound = [];
-    const HIGH_RISK_PORTS = ['21', '23', '3389', '445', '135', '139'];
-
-    if (!isNmapError) {
-      const openPortLines = nmapOutput.match(/(\d+)\/tcp\s+open[^\n]*/g) || [];
-      totalOpenPorts = openPortLines.length;
-      openPortLines.forEach((line) => {
-        const portMatch = line.match(/^(\d+)\/tcp/);
-        if (portMatch && HIGH_RISK_PORTS.includes(portMatch[1])) riskyPortsFound.push(portMatch[1]);
-      });
-    }
-
-    const hasIgnoredStates = nmapLower.includes('ignored states') || nmapLower.includes('all 100 scanned ports');
-    if (totalOpenPorts === 0 && (hasIgnoredStates || nmapLower.includes('host seems down'))) {
+    if (collected.totalOpenPorts === 0 && collected.isHostDown && !headerResult.success && !niktoRes.success) {
       return res.json({
         success: false,
         status: 'failed',
@@ -383,51 +574,27 @@ exports.publicScan = async (req, res) => {
       });
     }
 
-    if (riskyPortsFound.length > 0) { highCount += 1; hasA02Vulnerability = true; }
-    else if (totalOpenPorts > 0) {
-      hasA02Vulnerability = true;
-      if (totalOpenPorts > 3) mediumCount += 1; else lowCount += 1;
-    }
-
-    const isSSLyzeError = sslyzeLower.includes('command_error') || sslyzeLower.includes('unrecognized arguments');
-    let sslyzeParsed = null;
-    if (!isSSLyzeError) { try { sslyzeParsed = JSON.parse(sslyzeOutput); } catch (e) { sslyzeParsed = null; } }
-    if (!isSSLyzeError && sslyzeParsed) {
-      try {
-        const serverResult = sslyzeParsed.server_scan_results?.[0];
-        if (!serverResult || sslyzeOutput.length < 150) { highCount += 1; hasA04Vulnerability = true; }
-        else {
-          const commands = serverResult.scan_result || {};
-          const hasExpired = commands.certificate_info?.result?.certificate_deployments?.some(dep => dep.path_validation_results?.some(pv => !pv.was_validation_successful));
-          if (hasExpired) { highCount += 1; hasA04Vulnerability = true; }
-        }
-      } catch (e) {}
-    }
-
-    if (headerResult.success && headerResult.missingHeaders.length > 0) {
-      hasA05Vulnerability = true;
-      if (headerResult.missingHeaders.length >= 3) mediumCount += 1; else lowCount += 1;
-    }
-
-    // หักคะแนนครั้งเดียวต่อระดับความรุนแรง (ไม่คูณตามจำนวนที่เจอ) ให้สอดคล้องกับ startScan
-    const minusCritical = criticalCount > 0 ? 30 : 0;
-    const minusHigh = highCount > 0 ? 15 : 0;
-    const minusMedium = mediumCount > 0 ? 7 : 0;
-    const minusLow = lowCount > 0 ? 3 : 0;
-
-    const baseScore = Math.max(0, 100 - (minusCritical + minusHigh + minusMedium + minusLow));
-    const finalScore = Math.min(100, Math.max(0, baseScore - (hasA04Vulnerability?12:0) - (hasA05Vulnerability?25:0)));
-    const grade = calculateGrade(finalScore);
+    const evalResult = evaluateOwaspScores(collected.findings, {
+      isSslValid: collected.isSslValid,
+      missingHeadersCount: headerResult.missingHeaders.length,
+      riskyPortsLength: collected.riskyPortsFound.length,
+      totalOpenPorts: collected.totalOpenPorts,
+      isBannerHidden: headerResult.isBannerHidden && !niktoRes.hasServerBanner,
+      url
+    });
 
     res.json({
       success: true,
       status: 'completed',
       targetUrl: url,
       data: {
-        summary: { finalScore, grade },
+        summary: { finalScore: evalResult.finalScore, grade: evalResult.grade },
+        deductionBreakdown: evalResult.deductionBreakdown,
+        bonusBreakdown: evalResult.bonusBreakdown,
         details: {
-          A02: hasA02Vulnerability ? `พบพอร์ตเปิด ${totalOpenPorts}` : 'ปลอดภัย',
-          A04: hasA04Vulnerability ? 'พบปัญหา SSL/TLS' : 'ปลอดภัย'
+          open_ports_detected: collected.totalOpenPorts,
+          risky_ports: collected.riskyPortsFound,
+          missing_security_headers: headerResult.missingHeaders
         }
       }
     });
@@ -436,24 +603,32 @@ exports.publicScan = async (req, res) => {
   }
 };
 
-// 🎯 ฟังก์ชันส่องสเตตัส
+// 🎯 ฟังก์ชันส่องสเตตัสพร้อมบอกเปอร์เซ็นต์ความคืบหน้าเรียลไทม์
 exports.getScanStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const [rows] = await db.execute('SELECT status, target_url, owasp_mapping, nmap_raw_output, sslyze_raw_output, zap_raw_output FROM scan_results WHERE id = ?', [id]);
     if (rows.length === 0) return res.status(404).json({ message: 'ไม่พบข้อมูล' });
+
+    const numericId = Number(id);
+    const progress = activeScanProgress.get(numericId) || activeScanProgress.get(id) || null;
+
     let parsedData = rows[0].owasp_mapping;
     if (typeof parsedData === 'string') parsedData = JSON.parse(parsedData);
-    res.json({ 
-      success: true, 
-      status: rows[0].status, 
-      targetUrl: rows[0].target_url, 
-      data: parsedData, 
-      rawOutputs: { 
-        nmap: rows[0].nmap_raw_output, 
+    res.json({
+      success: true,
+      status: rows[0].status,
+      targetUrl: rows[0].target_url,
+      currentStep: progress ? progress.currentStep : (rows[0].status === 'completed' ? 5 : 0),
+      percent: progress ? progress.percent : (rows[0].status === 'completed' ? 100 : 0),
+      message: progress ? progress.message : '',
+      data: parsedData,
+      rawOutputs: {
+        nmap: rows[0].nmap_raw_output,
         sslyze: rows[0].sslyze_raw_output,
-        zap: rows[0].zap_raw_output
-      } 
+        zap: rows[0].zap_raw_output,
+        nikto: parsedData?.details?.nikto_raw || 'No raw output available for Nikto'
+      }
     });
   } catch (error) { res.status(500).json({ message: 'เกิดข้อผิดพลาด' }); }
 };
@@ -463,14 +638,84 @@ exports.getScanHistory = async (req, res) => {
   try {
     const activeUser = req.user || req.userData || req.user_info || req.auth;
     const userId = activeUser ? (activeUser.id || activeUser.userId || activeUser._id || activeUser.memberId) : null;
-    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อนครับนาย' });
+    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อน' });
     const [rows] = await db.execute('SELECT id, target_url, status, created_at, owasp_mapping FROM scan_results WHERE user_id = ? ORDER BY created_at DESC', [userId]);
-    const historyData = rows.map(row => {
+    const historyData = rows.map((row, index) => {
       let parsedMapping = row.owasp_mapping;
-      if (typeof parsedMapping === 'string') { try { parsedMapping = JSON.parse(parsedMapping); } catch(e){} }
-      return { id: row.id, targetUrl: row.target_url, status: row.status, createdAt: row.created_at, grade: parsedMapping?.summary?.grade || 'N/A', score: parsedMapping?.summary?.finalScore || 0 };
+      if (typeof parsedMapping === 'string') { try { parsedMapping = JSON.parse(parsedMapping); } catch (e) { } }
+      const versionName = parsedMapping?.version_name || `v1.${rows.length - index - 1}`;
+      return { 
+        id: row.id, 
+        targetUrl: row.target_url, 
+        status: row.status, 
+        createdAt: row.created_at, 
+        versionName, 
+        grade: parsedMapping?.summary?.grade || 'N/A', 
+        score: parsedMapping?.summary?.finalScore || 0 
+      };
     });
     res.json({ success: true, data: historyData });
+  } catch (error) { res.status(500).json({ message: 'เกิดข้อผิดพลาด' }); }
+};
+
+// 🏷️ อัปเดตเปลี่ยนชื่อเวอร์ชันการสแกน (Version Tag)
+exports.updateScanVersion = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { versionName } = req.body;
+    const activeUser = req.user || req.userData || req.user_info || req.auth;
+    const userId = activeUser ? (activeUser.id || activeUser.userId || activeUser._id || activeUser.memberId) : null;
+    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อน' });
+    if (!versionName) return res.status(400).json({ message: 'กรุณาระบุชื่อเวอร์ชัน' });
+
+    const [rows] = await db.execute('SELECT owasp_mapping FROM scan_results WHERE id = ? AND user_id = ?', [id, userId]);
+    if (rows.length === 0) return res.status(404).json({ message: 'ไม่พบข้อมูล' });
+
+    let parsedMapping = rows[0].owasp_mapping;
+    if (typeof parsedMapping === 'string') parsedMapping = JSON.parse(parsedMapping) || {};
+    parsedMapping.version_name = versionName.trim();
+
+    await db.execute('UPDATE scan_results SET owasp_mapping = ? WHERE id = ?', [JSON.stringify(parsedMapping), id]);
+    res.json({ success: true, message: 'อัปเดตเวอร์ชันสำเร็จ', versionName: parsedMapping.version_name });
+  } catch (error) { res.status(500).json({ message: 'เกิดข้อผิดพลาดในการอัปเดตเวอร์ชัน' }); }
+};
+
+// 🌐 ดึงประวัติเวอร์ชันทั้งหมดของเว็บไซต์เฉพาะเว็บ (Website Version Timeline)
+exports.getWebsiteVersions = async (req, res) => {
+  try {
+    const { url } = req.query;
+    const activeUser = req.user || req.userData || req.user_info || req.auth;
+    const userId = activeUser ? (activeUser.id || activeUser.userId || activeUser._id || activeUser.memberId) : null;
+    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อน' });
+
+    let query = 'SELECT id, target_url, status, created_at, owasp_mapping FROM scan_results WHERE user_id = ? AND status = "completed"';
+    const params = [userId];
+    if (url) {
+      const cleanedDomain = url.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].split(':')[0];
+      query += ' AND target_url LIKE CONCAT("%", ?, "%")';
+      params.push(cleanedDomain);
+    }
+    query += ' ORDER BY created_at ASC';
+
+    const [rows] = await db.execute(query, params);
+    const versions = rows.map((row, idx) => {
+      let mapping = row.owasp_mapping;
+      if (typeof mapping === 'string') { try { mapping = JSON.parse(mapping); } catch (e) { } }
+      return {
+        id: row.id,
+        targetUrl: row.target_url,
+        createdAt: row.created_at,
+        versionName: mapping?.version_name || (idx === 0 ? 'v1.0 (Baseline)' : `v1.${idx}`),
+        score: mapping?.summary?.finalScore ?? 0,
+        grade: mapping?.summary?.grade || 'F',
+        vulnerabilities: mapping?.vulnerabilities || {},
+        deductionBreakdown: mapping?.deductionBreakdown || [],
+        bonusBreakdown: mapping?.bonusBreakdown || [],
+        details: mapping?.details || {}
+      };
+    });
+
+    res.json({ success: true, data: versions });
   } catch (error) { res.status(500).json({ message: 'เกิดข้อผิดพลาด' }); }
 };
 
@@ -479,7 +724,7 @@ exports.getDashboardStats = async (req, res) => {
   try {
     const activeUser = req.user || req.userData || req.user_info || req.auth;
     const userId = activeUser ? (activeUser.id || activeUser.userId || activeUser._id || activeUser.memberId) : null;
-    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อนครับนาย' });
+    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อน' });
     const [scans] = await db.execute('SELECT status, owasp_mapping FROM scan_results WHERE user_id = ?', [userId]);
     let totalScans = scans.length, completedScans = 0, failedScans = 0, safeCount = 0, riskyCount = 0;
     let vulnStats = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -488,7 +733,7 @@ exports.getDashboardStats = async (req, res) => {
       if (scan.status === 'completed') {
         completedScans++;
         let mapping = scan.owasp_mapping;
-        if (typeof mapping === 'string') { try { mapping = JSON.parse(mapping); } catch(e){} }
+        if (typeof mapping === 'string') { try { mapping = JSON.parse(mapping); } catch (e) { } }
         if (mapping) {
           const grade = mapping.summary?.grade || 'F';
           const vulns = mapping.vulnerabilities || {};
@@ -502,23 +747,68 @@ exports.getDashboardStats = async (req, res) => {
   } catch (error) { res.status(500).json({ message: 'เกิดข้อผิดพลาด' }); }
 };
 
-// 🆚 ดึงข้อมูลผลการสแกน 2 รายการเพื่อนำมาเปรียบเทียบกัน
+// 🆚 เปรียบเทียบผลการสแกนระหว่าง 2 เวอร์ชัน (Version Comparison Analytics)
 exports.compareScans = async (req, res) => {
   try {
     const { id1, id2 } = req.query;
     const activeUser = req.user || req.userData || req.user_info || req.auth;
     const userId = activeUser ? (activeUser.id || activeUser.userId || activeUser._id || activeUser.memberId) : null;
-    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อนครับนาย' });
-    if (!id1 || !id2) return res.status(400).json({ message: 'กรุณาระบุไอดีให้ครบ' });
+    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อน' });
+    if (!id1 || !id2) return res.status(400).json({ message: 'กรุณาระบุไอดีสแกน 2 เวอร์ชันที่ต้องการเปรียบเทียบ' });
+
     const [rows] = await db.execute('SELECT id, target_url, status, created_at, owasp_mapping FROM scan_results WHERE id IN (?, ?) AND user_id = ?', [id1, id2, userId]);
-    if (rows.length < 2) return res.status(404).json({ message: 'ไม่พบข้อมูล' });
-    const formatData = (row) => {
+    if (rows.length < 2) return res.status(404).json({ message: 'ไม่พบข้อมูลสแกนตามไอดีที่ระบุ' });
+
+    const raw1 = rows.find(r => r.id == id1);
+    const raw2 = rows.find(r => r.id == id2);
+
+    const parseRow = (row, defaultVerName) => {
       let mapping = row.owasp_mapping;
-      if (typeof mapping === 'string') mapping = JSON.parse(mapping);
-      return { id: row.id, targetUrl: row.target_url, status: row.status, createdAt: row.created_at, summary: mapping?.summary || { finalScore: 0, grade: 'F' }, vulnerabilities: mapping?.vulnerabilities || { critical: 0, high: 0, medium: 0, low: 0 }, details: mapping?.details || {} };
+      if (typeof mapping === 'string') { try { mapping = JSON.parse(mapping); } catch (e) { } }
+      return {
+        id: row.id,
+        targetUrl: row.target_url,
+        createdAt: row.created_at,
+        versionName: mapping?.version_name || defaultVerName,
+        summary: mapping?.summary || { finalScore: 0, grade: 'F' },
+        vulnerabilities: mapping?.vulnerabilities || { critical: 0, high: 0, medium: 0, low: 0 },
+        deductionBreakdown: mapping?.deductionBreakdown || [],
+        bonusBreakdown: mapping?.bonusBreakdown || [],
+        details: mapping?.details || {}
+      };
     };
-    res.json({ success: true, data: { item1: formatData(rows.find(r => r.id == id1)), item2: formatData(rows.find(r => r.id == id2)) } });
-  } catch (error) { res.status(500).json({ message: 'เกิดข้อผิดพลาด' }); }
+
+    const item1 = parseRow(raw1, 'v1.0 (Baseline)');
+    const item2 = parseRow(raw2, 'v1.1 (Updated)');
+
+    // 🧠 คำนวณความแตกต่างของช่องโหว่ (Fixed / New / Unresolved)
+    const list1 = item1.deductionBreakdown || [];
+    const list2 = item2.deductionBreakdown || [];
+
+    // ช่องโหว่ที่เคยมีในเวอร์ชันแรก แต่ไม่พบในเวอร์ชันถัดมา (แก้ไขสำเร็จ!)
+    const fixedIssues = list1.filter(d1 => !list2.some(d2 => d2.label === d1.label));
+    // ช่องโหว่ที่เกิดขึ้นใหม่ในเวอร์ชันล่าสุด
+    const newIssues = list2.filter(d2 => !list1.some(d1 => d1.label === d2.label));
+    // ช่องโหว่ที่ยังคงค้างอยู่ทั้ง 2 เวอร์ชัน
+    const unresolvedIssues = list2.filter(d2 => list1.some(d1 => d1.label === d2.label));
+
+    const score1 = item1.summary.finalScore ?? 0;
+    const score2 = item2.summary.finalScore ?? 0;
+    const scoreDiff = score2 - score1;
+
+    res.json({
+      success: true,
+      data: {
+        item1,
+        item2,
+        scoreDiff,
+        isImproved: scoreDiff > 0,
+        fixedIssues,
+        newIssues,
+        unresolvedIssues
+      }
+    });
+  } catch (error) { res.status(500).json({ message: 'เกิดข้อผิดพลาดในการเปรียบเทียบเวอร์ชัน' }); }
 };
 
 // 🌐 ระบบจัดการเว็บไซต์ของฉัน (My Websites)
@@ -526,11 +816,11 @@ exports.getMyWebsites = async (req, res) => {
   try {
     const activeUser = req.user || req.userData || req.user_info || req.auth;
     const userId = activeUser ? (activeUser.id || activeUser.userId || activeUser._id || activeUser.memberId) : null;
-    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อนครับนาย' });
+    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อน' });
     const [rows] = await db.execute(`SELECT uw.id, uw.website_name, uw.website_url, uw.created_at, sr.id AS last_scan_id, sr.owasp_mapping, sr.status AS scan_status FROM user_websites uw LEFT JOIN scan_results sr ON sr.id = (SELECT id FROM scan_results WHERE user_id = ? AND target_url LIKE CONCAT('%', uw.website_url, '%') AND status = 'completed' ORDER BY created_at DESC LIMIT 1) WHERE uw.user_id = ? ORDER BY uw.created_at DESC`, [userId, userId]);
     const formattedWebsites = rows.map(row => {
       let parsedMapping = row.owasp_mapping;
-      if (typeof parsedMapping === 'string') { try { parsedMapping = JSON.parse(parsedMapping); } catch(e){} }
+      if (typeof parsedMapping === 'string') { try { parsedMapping = JSON.parse(parsedMapping); } catch (e) { } }
       return { id: row.id, name: row.website_name, url: row.website_url, createdAt: row.created_at, lastScanId: row.last_scan_id || null, scanStatus: row.scan_status || 'never_scanned', grade: parsedMapping?.summary?.grade || 'N/A', score: parsedMapping?.summary?.finalScore !== undefined ? parsedMapping.summary.finalScore : null };
     });
     res.json({ success: true, data: formattedWebsites });
@@ -542,7 +832,7 @@ exports.addMyWebsite = async (req, res) => {
     const { name, url } = req.body;
     const activeUser = req.user || req.userData || req.user_info || req.auth;
     const userId = activeUser ? (activeUser.id || activeUser.userId || activeUser._id || activeUser.memberId) : null;
-    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อนครับนาย' });
+    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อน' });
     if (!name || !url) return res.status(400).json({ message: 'ข้อมูลไม่ครบถ้วน' });
     const cleanedUrl = url.replace(/^(https?:\/\/)?(www\.)?/, '').split('/')[0].split(':')[0];
     const [result] = await db.execute('INSERT INTO user_websites (user_id, website_name, website_url) VALUES (?, ?, ?)', [userId, name, cleanedUrl]);

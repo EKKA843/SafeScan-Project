@@ -46,6 +46,10 @@ router.get('/stats', localProtect, scanController.getDashboardStats);
 // 🎯 เปรียบเทียบข้อมูลผลการสแกน 2 รายการ
 router.get('/compare', localProtect, scanController.compareScans);
 
+// 🏷️ อัปเดตเปลี่ยนชื่อเวอร์ชันการสแกน และดึงประวัติเวอร์ชันเฉพาะเว็บ
+router.put('/version/:id', localProtect, scanController.updateScanVersion);
+router.get('/website-versions', localProtect, scanController.getWebsiteVersions);
+
 // 🌐 เส้นทางจัดการระบบเว็บไซต์ของฉัน (My Websites)
 router.get('/my-websites', localProtect, scanController.getMyWebsites);
 router.post('/my-websites', localProtect, scanController.addMyWebsite);

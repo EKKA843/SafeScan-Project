@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Zap, Info, ShieldAlert, Loader2, CheckCircle2, Server, ShieldCheck, FileCheck2, Bug, Terminal } from 'lucide-react';
+import { Search, Zap, Info, ShieldAlert, Loader2, CheckCircle2, Server, ShieldCheck, FileCheck2, Bug, Terminal, Activity, Globe, Lock, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
@@ -8,39 +8,47 @@ export default function ScanPage() {
   const [activeTab, setActiveTab] = useState('url');
   const [urlInput, setUrlInput] = useState('');
   const [isScanning, setIsScanning] = useState(false);
-  
-  // 🎯 State สำหรับจัดการสเตตัสการสแกนแบบ Step-by-Step
   const [currentStep, setCurrentStep] = useState(0);
 
-  // 📝 รายการสแกนทั้งหมดระบุอย่างละเอียด อ้างอิงตามเอกสาร Security Planning OWASP 2025[cite: 1]
   const scanSteps = [
     { 
       id: 0, 
-      title: '1. สแกนโครงสร้างพอร์ตและบริการระบบ (Nmap Network Scanner)', 
-      desc: 'สำรวจพอร์ตเครือข่ายที่เปิดสู่สาธารณะ และค้นหาพอร์ตบริหารจัดการ/ฐานข้อมูลที่สุ่มเสี่ยง',
+      title: '1. สแกนพอร์ตและบริการระบบเครือข่าย (Nmap Network Layer)', 
+      desc: 'สำรวจพอร์ตเครือข่ายที่เปิดสู่สาธารณะ ค้นหาพอร์ตบริหารจัดการและฐานข้อมูลที่สุ่มเสี่ยง',
       owasp: 'OWASP A02: Security Misconfiguration',
       subtasks: [
-        'ส่งแพ็กเก็ต TCP SYN สแกนหาพอร์ตที่มีสถานะเป็น Open (Port 1-65535)',
+        'ส่งแพ็กเก็ต TCP SYN สแกนหาพอร์ตที่มีสถานะเปิด (Port 1-65535)',
         'ตรวจสอบประเภทและเลขเวอร์ชันของบริการ (Service Version Detection)',
-        'เช็กพอร์ตบริหารจัดการและฐานข้อมูลสุ่มเสี่ยง (เช่น SSH 22, MySQL 3306, RDP 3389)'
+        'เช็กพอร์ตสุ่มเสี่ยงสูง (SSH 22, Telnet 23, MySQL 3306, RDP 3389)'
       ]
     },
     { 
       id: 1, 
-      title: '2. วิเคราะห์การเข้ารหัสและใบรับรองความปลอดภัย (SSLyze Inspection Engine)', 
-      desc: 'ตรวจสอบมาตรฐานโปรโตคอลการเข้ารหัส TLS/SSL และความถูกต้องของใบรับรองอิเล็กทรอนิกส์',
+      title: '2. วิเคราะห์การเข้ารหัสและใบรับรอง (SSLyze Transport Layer)', 
+      desc: 'ตรวจสอบมาตรฐานโปรโตคอล TLS/SSL และความถูกต้องของใบรับรองอิเล็กทรอนิกส์',
       owasp: 'OWASP A04: Cryptographic Failures',
       subtasks: [
-        'ตรวจสอบความน่าเชื่อถือ วันหมดอายุ และห่วงโซ่ใบรับรอง (SSL Certificate Trust Chain)',
-        'วิเคราะห์การรองรับ Protocol ล้าสมัย (เช่น SSLv2, SSLv3, TLS 1.0, TLS 1.1)',
-        'สแกนชุดอัลกอริทึมการเข้ารหัส (Cipher Suites) และตรวจหาช่องโหว่ Heartbleed / ROBOT'
+        'ตรวจสอบความน่าเชื่อถือ วันหมดอายุ และห่วงโซ่ใบรับรอง (Certificate Chain)',
+        'วิเคราะห์การรองรับ Protocol ล้าสมัย (SSLv2, SSLv3, TLS 1.0, TLS 1.1)',
+        'สแกนชุด Cipher Suites และตรวจหาช่องโหว่ Heartbleed / POODLE'
       ]
     },
     { 
       id: 2, 
-      title: '3. ตรวจสอบความครบถ้วนของ HTTP Security Headers (Header Verification)', 
+      title: '3. สแกนโครงสร้างเว็บเซิร์ฟเวอร์และไฟล์สำคัญ (Nikto Web Server Layer)', 
+      desc: 'สแกนหาไฟล์สำรอง ไฟล์คอนฟิกเปิดเผย และการเปิดใช้ HTTP Methods ที่อันตราย',
+      owasp: 'OWASP A02: Security Misconfiguration',
+      subtasks: [
+        'สแกนหาไฟล์ตกค้างและไฟล์สำรอง (.env, .bak, /admin, /config)',
+        'ตรวจเช็กการเปิดใช้งาน HTTP Methods ที่สุ่มเสี่ยง (PUT, DELETE, TRACE)',
+        'ตรวจสอบการรั่วไหลของ Server Version Banner บนเว็บเซิร์ฟเวอร์'
+      ]
+    },
+    { 
+      id: 3, 
+      title: '4. ตรวจสอบความครบถ้วนของ HTTP Security Headers (Header Verification)', 
       desc: 'ตรวจสอบ Headers สำคัญที่เซิร์ฟเวอร์ตอบกลับ เพื่อป้องกันการโจมตีทางเว็บเบื้องต้น',
-      owasp: 'OWASP A05: Security Misconfiguration',
+      owasp: 'OWASP A02: Security Misconfiguration',
       subtasks: [
         'ตรวจสอบการบังคับใช้ HTTPS ผ่าน Strict-Transport-Security (HSTS)',
         'วิเคราะห์นโยบายควบคุมการรันสคริปต์ Content-Security-Policy (CSP)',
@@ -48,58 +56,44 @@ export default function ScanPage() {
       ]
     },
     { 
-      id: 3, 
-      title: '4. สแกนช่องโหว่ระดับแอปพลิเคชันเชิงลึก (OWASP ZAP DAST Container)', 
-      desc: 'ทดสอบจำลองการโจมตีขณะรันไทม์เพื่อค้นหาช่องโหว่ระดับโค้ดและ Business Logic',
+      id: 4, 
+      title: '5. สแกนช่องโหว่แอปพลิเคชันเชิงลึก (OWASP ZAP DAST Container)', 
+      desc: 'จำลองการโจมตีขณะรันไทม์เพื่อค้นหาช่องโหว่ระดับโค้ดและ Business Logic',
       owasp: 'OWASP A01 / A03 / A05 / A07 / A10',
       subtasks: [
-        'ตรวจหาช่องโหว่การแทรกคำสั่งอันตราย (SQL Injection, Cross-Site Scripting - XSS)',
-        'สแกนหาข้อผิดพลาดของระบบยืนยันตัวตน และ Cookie Security Flags (HttpOnly, Secure)',
+        'ตรวจหาช่องโหว่การแทรกคำสั่งอันตราย (SQL Injection, XSS)',
+        'สแกนหาข้อผิดพลาดของระบบยืนยันตัวตน และ Cookie Security Flags',
         'ตรวจเช็กการรั่วไหลของข้อมูลภายใน (Stack Trace / Verbose Error Messages)'
       ]
     },
     { 
-      id: 4, 
-      title: '5. ประมวลผล Scoring Algorithm และสรุปผลรายงาน', 
+      id: 5, 
+      title: '6. ประมวลผล Scoring Engine และสรุปผลรายงาน', 
       desc: 'คำนวณคะแนนตาม 3 มิติ (Base Score + Category Penalty + Bonus Points) และตัดเกรด A-F',
-      owasp: 'Finalizing Report Generation',
+      owasp: 'Finalizing Security Report',
       subtasks: [
         'สรุปจำนวนและระดับความรุนแรงของช่องโหว่ (CVSS v3.1 Severity Score)',
-        'คำนวณค่าปรับ Category Penalty ตามหมวดความเสี่ยงเชิงธุรกิจ',
-        'บันทึกประวัติรายงานผลลงในฐานข้อมูล MySQL และจัดเตรียม UI Dashboard'
+        'คำนวณคะแนนโบนัสและตรวจสอบเกณฑ์ Auto-fail (Broken Access Control)',
+        'บันทึกผลสแกนลงฐานข้อมูล MySQL และจัดเตรียม UI Dashboard'
       ]
     }
   ];
 
-  // ⏱️ ตัวจำลองการขยับสเต็ปตามช่วงเวลา
-  useEffect(() => {
-    let timer;
-    if (isScanning) {
-      timer = setInterval(() => {
-        setCurrentStep((prevStep) => {
-          if (prevStep < scanSteps.length - 1) {
-            return prevStep + 1;
-          }
-          return prevStep;
-        });
-      }, 10000); // เปลี่ยนสเต็ปทุกๆ 10 วินาที
-    } else {
-      setCurrentStep(0);
-    }
-    return () => clearInterval(timer);
-  }, [isScanning]);
+  const [scanPercent, setScanPercent] = useState(0);
+  const [versionInput, setVersionInput] = useState('');
 
   const handleStartScan = async (e) => {
     e.preventDefault();
-    if (!urlInput.trim()) return alert('กรุณากรอก URL ของเว็บไซต์ก่อนครับ');
+    if (!urlInput.trim()) return alert('กรุณากรอก URL ของเว็บไซต์ก่อน');
 
     try {
       setIsScanning(true);
       setCurrentStep(0);
+      setScanPercent(10);
 
-      // 1. นำส่ง URL ไปให้หลังบ้านสั่งเปิดโปรแกรมสแกน
       const response = await axios.post('http://localhost:5000/api/scan/start', {
-        url: urlInput
+        url: urlInput,
+        versionName: versionInput
       }, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
@@ -109,34 +103,41 @@ export default function ScanPage() {
       if (response.data.success) {
         const scanId = response.data.scanId;
 
-        // 2. สืบค้นสเตตัสวนเช็กกับ MySQL
         const checkStatusLoop = async () => {
           try {
             const statusRes = await axios.get(`http://localhost:5000/api/scan/status/${scanId}`);
 
             if (statusRes.data.status === 'completed') {
+              setCurrentStep(5);
+              setScanPercent(100);
               setIsScanning(false);
               navigate(`/scan-result/${scanId}`);
             } else if (statusRes.data.status === 'failed') {
               setIsScanning(false);
-              alert('❌ ระบบสแกนล้มเหลว หรือเป้าหมายปิดกั้นการสแกน กรุณาตรวจสอบผลการสแกนในประวัติ');
+              alert('❌ ระบบสแกนล้มเหลว หรือเป้าหมายปิดกั้นการสแกน กรุณาตรวจสอบประวัติ');
               navigate(`/scan-result/${scanId}`);
             } else {
-              setTimeout(checkStatusLoop, 3000);
+              if (statusRes.data.currentStep !== undefined) {
+                setCurrentStep(statusRes.data.currentStep);
+              }
+              if (statusRes.data.percent !== undefined) {
+                setScanPercent(statusRes.data.percent);
+              }
+              setTimeout(checkStatusLoop, 1500);
             }
           } catch (err) {
             console.error('Error checking status:', err);
-            setTimeout(checkStatusLoop, 3000);
+            setTimeout(checkStatusLoop, 1500);
           }
         };
 
-        setTimeout(checkStatusLoop, 3000);
+        setTimeout(checkStatusLoop, 1500);
       }
 
     } catch (error) {
       console.error('Scan Error:', error);
       if (error.response && error.response.status === 401) {
-        alert('❌ สิทธิ์การตรวจสอบไม่ถูกต้อง กรุณาล็อกเอาท์แล้วเข้าสู่ระบบใหม่อีกครั้งครับ');
+        alert('❌ สิทธิ์การเข้าถึงไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่อีกครั้ง');
       } else {
         alert('เกิดข้อผิดพลาดในการเชื่อมต่อระบบสแกน');
       }
@@ -145,54 +146,77 @@ export default function ScanPage() {
   };
 
   return (
-    <div className="w-full flex flex-col items-center py-6 font-sans text-slate-700">
-      <div className="text-center space-y-3 mb-10">
-        <h1 className="text-3xl font-extrabold text-blue-950 tracking-tight">ตรวจสอบความปลอดภัยเว็บไซต์</h1>
-        <p className="text-slate-500 text-sm max-w-md mx-auto font-medium">
-          กรอก URL เพื่อเริ่มการสแกนวิเคราะห์ช่องโหว่เชิงลึกตามมาตรฐาน OWASP Top 10 (2025)
+    <div className="w-full flex flex-col items-center py-4 font-sans text-slate-800 space-y-8">
+      
+      {/* Header Banner */}
+      <div className="text-center space-y-2 max-w-xl">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200/60 text-blue-700 text-xs font-extrabold shadow-xs mb-1">
+          <Activity className="w-3.5 h-3.5 text-blue-600 animate-pulse" />
+          <span>Multi-Layer Scanning Engine (OWASP 2025)</span>
+        </div>
+        <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+          ตรวจสอบความปลอดภัยเว็บไซต์
+        </h1>
+        <p className="text-slate-500 text-xs md:text-sm font-medium leading-relaxed">
+          กรอก URL เว็บไซต์เพื่อเริ่มสแกนวิเคราะห์ช่องโหว่เชิงลึกผ่าน 4 เอนจินสแกนหลักตามมาตรฐานสากล
         </p>
       </div>
 
-      <div className="w-full max-w-2xl bg-white rounded-3xl border border-slate-100 shadow-[0_15px_40px_rgba(148,163,184,0.08)] p-8 mb-8">
-        <div className="flex border-b border-slate-100 mb-8 justify-center gap-12 text-sm font-semibold">
-          <button onClick={() => setActiveTab('url')} className={`pb-3 relative ${activeTab === 'url' ? 'text-blue-600 font-bold' : 'text-slate-400'}`}>
+      {/* Main Form Input Box */}
+      <div className="w-full max-w-2xl bg-white/90 backdrop-blur-xl rounded-3xl border border-slate-200/80 shadow-2xl shadow-blue-500/10 p-6 md:p-8">
+        <div className="flex border-b border-slate-100 mb-6 justify-center gap-8 text-xs font-bold">
+          <button 
+            onClick={() => setActiveTab('url')} 
+            className={`pb-3 relative transition-all ${activeTab === 'url' ? 'text-blue-600 font-black' : 'text-slate-400 hover:text-slate-600'}`}
+          >
             กรอก URL
-            {activeTab === 'url' && <div className="absolute bottom-0 left-0 w-full h-[2px] bg-blue-600 rounded-full" />}
-          </button>
-          <button onClick={() => setActiveTab('qrcode')} className={`pb-3 relative ${activeTab === 'qrcode' ? 'text-blue-600 font-bold' : 'text-slate-400'}`}>
-            สแกน QR Code
+            {activeTab === 'url' && <div className="absolute bottom-0 left-0 w-full h-[2.5px] bg-blue-600 rounded-full" />}
           </button>
         </div>
 
         {activeTab === 'url' && (
-          <form onSubmit={handleStartScan} className="space-y-5">
-            <div className="w-full bg-slate-50/80 rounded-2xl border border-slate-100 p-4 flex items-center gap-3 focus-within:border-blue-500 focus-within:bg-white transition-all shadow-inner">
-              <Search className="w-5 h-5 text-slate-400" />
+          <form onSubmit={handleStartScan} className="space-y-4">
+            <div className="w-full bg-slate-50/90 rounded-2xl border border-slate-200 p-4 flex items-center gap-3 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/15 focus-within:bg-white transition-all shadow-inner">
+              <Globe className="w-5 h-5 text-blue-600 shrink-0" />
               <input 
                 type="text" 
                 value={urlInput}
                 onChange={(e) => setUrlInput(e.target.value)}
                 disabled={isScanning}
                 placeholder="https://example.com"
-                className="w-full text-slate-700 placeholder-slate-400 text-sm font-medium focus:outline-none bg-transparent"
+                className="w-full text-slate-800 placeholder-slate-400 text-sm font-medium focus:outline-none bg-transparent"
+              />
+            </div>
+
+            <div className="w-full bg-slate-50/90 rounded-2xl border border-slate-200 p-3.5 flex items-center gap-3 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-500/15 focus-within:bg-white transition-all shadow-inner">
+              <span className="text-xs font-black text-blue-700 bg-blue-100 px-2 py-0.5 rounded-md shrink-0">VERSION</span>
+              <input 
+                type="text" 
+                value={versionInput}
+                onChange={(e) => setVersionInput(e.target.value)}
+                disabled={isScanning}
+                placeholder="ชื่อเวอร์ชัน (ระบุได้ เช่น v1.0 Baseline, v1.1 Fix XSS / ปล่อยว่างเพื่อใส่อัตโนมัติ)"
+                className="w-full text-slate-800 placeholder-slate-400 text-xs font-medium focus:outline-none bg-transparent"
               />
             </div>
 
             <button 
               type="submit"
               disabled={isScanning}
-              className={`w-full py-4 text-white font-bold text-base rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2 ${
-                isScanning ? 'bg-slate-400 cursor-not-allowed shadow-none' : 'bg-blue-900 hover:bg-blue-950 shadow-blue-900/10 active:scale-[0.99]'
+              className={`w-full py-4 text-white font-bold text-sm md:text-base rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2.5 cursor-pointer ${
+                isScanning 
+                  ? 'bg-slate-400 cursor-not-allowed shadow-none' 
+                  : 'bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/35 active:scale-[0.99]'
               }`}
             >
               {isScanning ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  กำลังดำเนินการสแกนช่องโหว่ความปลอดภัย...
+                  <span>กำลังสแกนวิเคราะห์ความปลอดภัย...</span>
                 </>
               ) : (
                 <>
-                  เริ่มสแกน
+                  <span>เริ่มสแกนระบบ</span>
                   <Zap className="w-4 h-4 fill-white" />
                 </>
               )}
@@ -201,23 +225,44 @@ export default function ScanPage() {
         )}
       </div>
 
-      {/* 🚨 ส่วนแสดงการทำงานแบบ Step-by-Step พร้อมบอกรายละเอียดการสแกนย่อย */}
+      {/* 📡 Live Scanning Status Dashboard */}
       {isScanning && (
-        <div className="w-full max-w-2xl bg-white border border-blue-100 rounded-3xl p-6 mb-8 shadow-sm animate-fadeIn">
-          <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-5">
+        <div className="w-full max-w-2xl bg-white/95 backdrop-blur-xl border border-blue-200/80 rounded-3xl p-6 md:p-8 shadow-xl shadow-blue-500/10 space-y-6 animate-in fade-in duration-300">
+          
+          {/* Header Status Bar */}
+          <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-5 text-white flex items-center justify-between shadow-md">
             <div className="flex items-center gap-3">
-              <div className="w-3 h-3 bg-blue-600 rounded-full animate-ping" />
+              <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-300">
+                <Loader2 className="w-5 h-5 animate-spin" />
+              </div>
               <div>
-                <h3 className="text-base font-bold text-slate-800">ขั้นตอนการตรวจสอบความปลอดภัย</h3>
-                <p className="text-xs text-slate-400">ระบบกำลังวิเคราะห์ข้อมูลแบบ Real-time</p>
+                <p className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">กำลังดำเนินการสแกนสด</p>
+                <h3 className="text-sm font-extrabold text-white truncate max-w-xs md:max-w-md">
+                  {scanSteps[currentStep].title}
+                </h3>
               </div>
             </div>
-            <span className="text-xs font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full">
-              Step {currentStep + 1} of {scanSteps.length}
+            <span className="text-xs font-black text-white bg-blue-600 px-3 py-1.5 rounded-xl shrink-0 shadow-xs">
+              {currentStep + 1} / {scanSteps.length}
             </span>
           </div>
 
-          <div className="space-y-4">
+          {/* Progress Bar */}
+          <div className="space-y-1.5">
+            <div className="flex justify-between text-xs font-bold">
+              <span className="text-blue-700">ความคืบหน้ารวม</span>
+              <span className="text-blue-700">{scanPercent > 0 ? scanPercent : Math.round(((currentStep + 1) / scanSteps.length) * 100)}%</span>
+            </div>
+            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 transition-all duration-500 rounded-full" 
+                style={{ width: `${scanPercent > 0 ? scanPercent : Math.round(((currentStep + 1) / scanSteps.length) * 100)}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Steps List */}
+          <div className="space-y-3">
             {scanSteps.map((step, idx) => {
               const isDone = idx < currentStep;
               const isCurrent = idx === currentStep;
@@ -225,18 +270,20 @@ export default function ScanPage() {
               return (
                 <div 
                   key={step.id} 
-                  className={`flex flex-col p-4 rounded-2xl transition-all ${
+                  className={`flex flex-col p-4 rounded-2xl transition-all duration-300 ${
                     isCurrent 
-                      ? 'bg-blue-50/90 border border-blue-200 shadow-sm' 
+                      ? 'bg-blue-50/90 border border-blue-300 shadow-md ring-2 ring-blue-500/10' 
                       : isDone 
-                      ? 'bg-slate-50/60 border border-transparent opacity-85' 
-                      : 'opacity-40 bg-slate-50/30'
+                      ? 'bg-slate-50/80 border border-slate-200/60 opacity-90' 
+                      : 'opacity-40 bg-slate-50/30 border border-transparent'
                   }`}
                 >
-                  <div className="flex items-start gap-3.5">
+                  <div className="flex items-start gap-3">
                     <div className="mt-0.5">
                       {isDone ? (
-                        <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                        <div className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
                       ) : isCurrent ? (
                         <Loader2 className="w-5 h-5 text-blue-600 animate-spin shrink-0" />
                       ) : (
@@ -246,10 +293,10 @@ export default function ScanPage() {
 
                     <div className="flex-1">
                       <div className="flex justify-between items-center gap-2">
-                        <p className={`text-xs font-bold ${isCurrent ? 'text-blue-950' : 'text-slate-800'}`}>
+                        <p className={`text-xs font-bold ${isCurrent ? 'text-blue-950 font-black' : 'text-slate-800'}`}>
                           {step.title}
                         </p>
-                        <span className="text-[10px] font-extrabold text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded-md shrink-0">
+                        <span className="text-[10px] font-extrabold text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded-full shrink-0">
                           {step.owasp}
                         </span>
                       </div>
@@ -257,16 +304,16 @@ export default function ScanPage() {
                     </div>
                   </div>
 
-                  {/* 🔍 รายละเอียด Sub-tasks ย่อย เปิดแสดงเมื่ออยู่ในสเต็ปปัจจุบัน */}
+                  {/* Sub-tasks breakdown when active */}
                   {isCurrent && (
-                    <div className="mt-3 ml-8 pt-3 border-t border-blue-100/80 space-y-1.5">
+                    <div className="mt-3 ml-8 pt-3 border-t border-blue-200/60 space-y-1.5 animate-in fade-in duration-200">
                       <p className="text-[10px] font-extrabold text-blue-900 uppercase tracking-wider flex items-center gap-1">
-                        <Terminal className="w-3 h-3 text-blue-600" /> รายการที่กำลังวิเคราะห์เชิงลึก:
+                        <Terminal className="w-3.5 h-3.5 text-blue-600" /> รายการที่กำลังวิเคราะห์เชิงลึก:
                       </p>
                       <ul className="space-y-1 pl-1">
                         {step.subtasks.map((sub, sIdx) => (
                           <li key={sIdx} className="text-[11px] text-blue-900 flex items-center gap-2 font-medium">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse shrink-0" />
                             <span>{sub}</span>
                           </li>
                         ))}
@@ -280,52 +327,40 @@ export default function ScanPage() {
         </div>
       )}
 
-      {/* 📌 การ์ดแสดง Scope of Scan ครบทั้ง 4 ด้าน */}
-      <div className="w-full max-w-2xl mb-6">
-        <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider mb-3 px-1">
-          ขอบเขตเครื่องมือในการสแกน (Scope of Scanning Engines)
+      {/* 📌 Scope of Scanning Engines (4 Main Tools) */}
+      <div className="w-full max-w-2xl mb-4">
+        <h3 className="text-xs font-black text-slate-400 uppercase tracking-wider mb-3 px-1">
+          ขอบเขตเครื่องมือสแกนทั้ง 4 เลเยอร์ (4-Layer Scanning Engine Suite)
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-white border border-slate-100 p-3.5 rounded-2xl shadow-sm space-y-1">
-            <Server className="w-4 h-4 text-purple-600 mb-1" />
-            <h4 className="text-xs font-bold text-slate-800">1. Nmap Engine</h4>
-            <p className="text-[10px] text-slate-400 font-medium">ตรวจพอร์ตและบริการระบบ (OWASP A02)</p>
+          
+          <div className="bg-white/90 backdrop-blur-md border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 hover:border-purple-300 transition-all">
+            <Server className="w-5 h-5 text-purple-600 mb-1" />
+            <h4 className="text-xs font-extrabold text-slate-900">1. Nmap Engine</h4>
+            <p className="text-[10px] text-slate-500 font-medium">Network Layer: พอร์ต & บริการเครือข่าย</p>
           </div>
-          <div className="bg-white border border-slate-100 p-3.5 rounded-2xl shadow-sm space-y-1">
-            <ShieldCheck className="w-4 h-4 text-blue-600 mb-1" />
-            <h4 className="text-xs font-bold text-slate-800">2. SSLyze Engine</h4>
-            <p className="text-[10px] text-slate-400 font-medium">ตรวจ SSL/TLS & Ciphers (OWASP A04)</p>
+
+          <div className="bg-white/90 backdrop-blur-md border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 hover:border-blue-300 transition-all">
+            <ShieldCheck className="w-5 h-5 text-blue-600 mb-1" />
+            <h4 className="text-xs font-extrabold text-slate-900">2. SSLyze Engine</h4>
+            <p className="text-[10px] text-slate-500 font-medium">Transport Layer: SSL/TLS & Ciphers</p>
           </div>
-          <div className="bg-white border border-slate-100 p-3.5 rounded-2xl shadow-sm space-y-1">
-            <FileCheck2 className="w-4 h-4 text-teal-600 mb-1" />
-            <h4 className="text-xs font-bold text-slate-800">3. Fetch Headers</h4>
-            <p className="text-[10px] text-slate-400 font-medium">ตรวจ Security Headers (OWASP A05)</p>
+
+          <div className="bg-white/90 backdrop-blur-md border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 hover:border-cyan-300 transition-all">
+            <Globe className="w-5 h-5 text-cyan-600 mb-1" />
+            <h4 className="text-xs font-extrabold text-slate-900">3. Nikto Scanner</h4>
+            <p className="text-[10px] text-slate-500 font-medium">Web Server Layer: เซิร์ฟเวอร์ & ไฟล์สำคัญ</p>
           </div>
-          <div className="bg-white border border-slate-100 p-3.5 rounded-2xl shadow-sm space-y-1">
-            <Bug className="w-4 h-4 text-amber-500 mb-1" />
-            <h4 className="text-xs font-bold text-slate-800">4. OWASP ZAP</h4>
-            <p className="text-[10px] text-slate-400 font-medium">สแกน Web App DAST (OWASP Top 10)</p>
+
+          <div className="bg-white/90 backdrop-blur-md border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 hover:border-amber-300 transition-all">
+            <Bug className="w-5 h-5 text-amber-500 mb-1" />
+            <h4 className="text-xs font-extrabold text-slate-900">4. OWASP ZAP</h4>
+            <p className="text-[10px] text-slate-500 font-medium">App Layer: DAST & Business Logic</p>
           </div>
+
         </div>
       </div>
 
-      {/* การ์ดคำแนะนำ */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 w-full max-w-2xl">
-        <div className="bg-blue-50/60 border border-blue-100/50 rounded-2xl p-5 flex gap-4 text-slate-700">
-          <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center shrink-0"><Info className="w-5 h-5" /></div>
-          <div className="space-y-1">
-            <h4 className="text-sm font-bold text-blue-950">คำแนะนำการใช้งาน</h4>
-            <p className="text-xs text-slate-500 font-medium">กรุณากรอก URL ให้ถูกต้อง (เช่น https://example.com) ระบบจะประมวลผลผ่านหลังบ้านอัตโนมัติ</p>
-          </div>
-        </div>
-        <div className="bg-blue-50/60 border border-blue-100/50 rounded-2xl p-5 flex gap-4 text-slate-700">
-          <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center shrink-0"><ShieldAlert className="w-5 h-5" /></div>
-          <div className="space-y-1">
-            <h4 className="text-sm font-bold text-blue-950">มาตรฐานความปลอดภัย</h4>
-            <p className="text-xs text-slate-500 font-medium">ผลประเมินถูกประมวลผลตามมาตรฐานสากล CVSS v3.1 และจัดเก็บอย่างปลอดภัย</p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
