@@ -43,6 +43,12 @@ router.post('/public-scan', scanController.publicScan);
 // 🎯 ดึงสถิติวิเคราะห์ภาพรวม Dashboard หน้าแรก
 router.get('/stats', localProtect, scanController.getDashboardStats);
 
+// 🔌 ตรวจสถานะเอนจินสแกนแบบเรียลไทม์ (Nmap / SSLyze / Nikto / OWASP ZAP)
+router.get('/engine-status', localProtect, scanController.getEngineStatus);
+
+// 📈 แนวโน้มคะแนนความปลอดภัยย้อนหลัง 30/90 วัน (คำนวณจากประวัติการสแกนจริง)
+router.get('/trend', localProtect, scanController.getSecurityTrend);
+
 // 🎯 เปรียบเทียบข้อมูลผลการสแกน 2 รายการ
 router.get('/compare', localProtect, scanController.compareScans);
 

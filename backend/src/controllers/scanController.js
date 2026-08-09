@@ -4,13 +4,28 @@ const path = require('path');
 const os = require('os');
 const db = require('../config/db');
 
-// 🪄 ฟังก์ชันสำหรับตัดเกรด A-F ตามเอกสาร Security Planning (OWASP 2025)
-const calculateGrade = (score, isAutoFail = false) => {
-  if (isAutoFail || score < 30) return 'F'; // 0-29 หรือโดน A01 Auto-fail F
-  if (score >= 90) return 'A';              // 90-100 ปลอดภัย (Healthy)
-  if (score >= 70) return 'B';              // 70-89 พอใช้ได้ (Fair)
-  if (score >= 50) return 'C';              // 50-69 ควรแก้ไข (Further Improvements)
-  return 'D';                               // 30-49 เสี่ยงสูง (High Risk)
+// 🪄 ฟังก์ชันสำหรับตัดเกรด A-F ตามระดับความรุนแรงของช่องโหว่ที่พบจริง (ไม่ใช้แค่ตัวเลขคะแนนอย่างเดียว)
+//   A ดีมาก           : ไม่พบ Critical, High หรือ Medium และการสแกนครบถ้วน
+//   B ดี              : ไม่พบ Critical หรือ High อาจพบ Low
+//   C ปานกลาง         : ไม่พบ Critical อาจพบ Medium
+//   D มีความเสี่ยงสูง   : อาจพบ High แต่ต้องไม่พบ Critical
+//   F มีความเสี่ยงร้ายแรง: พบ Critical อย่างน้อย 1 รายการ หรือคะแนนอยู่ในช่วง 0-29
+const calculateGrade = (score, { hasCritical, hasHigh, hasMedium, hasLow, scanComplete } = {}) => {
+  if (hasCritical || score <= 29) return 'F';
+  if (hasHigh) return 'D';
+  if (hasMedium) return 'C';
+  if (hasLow) return 'B';
+  // ไม่พบช่องโหว่เลย — ต้องสแกนครบทุกเอนจินก่อนถึงจะให้เกรด A ได้ ไม่งั้นให้ B ไว้ก่อนเผื่อมีจุดที่ตรวจไม่ถึง
+  return scanComplete ? 'A' : 'B';
+};
+
+// 📋 ข้อความสรุประดับความเสี่ยงแบบสั้นๆ ต่อเกรด (แสดงแทนตัวเลข Raw Score/Ceiling เดิม)
+const RISK_LEVEL_TEXT = {
+  A: 'ดีมาก',
+  B: 'ดี',
+  C: 'ปานกลาง',
+  D: 'มีความเสี่ยงสูง',
+  F: 'มีความเสี่ยงร้ายแรง'
 };
 
 // 🔒 Validate โดเมนก่อนนำไปใช้กับคำสั่งระบบ ป้องกัน Command Injection
@@ -20,10 +35,21 @@ const isValidDomain = (domain) => {
   return domainRegex.test(domain);
 };
 
+// 🎯 รายการพอร์ตเฉพาะที่ต้องการให้ Nmap ตรวจสอบ (แทนการสแกน Top 100 พอร์ตแบบ -F)
+const NMAP_TARGET_PORTS = '21,22,23,80,135,139,443,445,1433,3000,3306,3389,5000,5432,6379,8000,8080,8443,9200,27017';
+
+// 🛠️ เติม path ของ Git for Windows (usr/bin) เข้าไปใน PATH ของ child process เพื่อให้หา perl.exe เจอ
+// แม้ backend จะถูกสั่งรันจากบริบทที่ไม่มี Git Bash อยู่ใน PATH (เช่น cmd/PowerShell/nodemon)
+const GIT_USR_BIN = 'C:\\Program Files\\Git\\usr\\bin';
+const extendedEnv = {
+  ...process.env,
+  PATH: `${process.env.PATH || ''};${GIT_USR_BIN}`
+};
+
 // 🎯 รันคำสั่ง CLI แบบปลอดภัย ใช้ execFile + มี timeout ป้องกันค้าง
 const runCommand = (command, args = [], timeoutMs = 60000) => {
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile(command, args, { timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024, env: extendedEnv }, (error, stdout, stderr) => {
       if (error) {
         // หากโปรแกรมรันเก็บข้อมูลได้บางส่วนแล้วก่อนที่จะถึง Timeout ให้ใช้ข้อมูลที่สแกนได้แทนที่จะส่งเป็นเออร์เรอร์ล้วน
         if (stdout && stdout.trim().length > 30) {
@@ -42,6 +68,80 @@ const runCommand = (command, args = [], timeoutMs = 60000) => {
 // 📊 แมปเก็บสถานะความคืบหน้าแบบ Real-time ราย Scan ID
 const activeScanProgress = new Map();
 
+// ============================================================================
+// 🔌 ตรวจสถานะเอนจินสแกนแบบเรียลไทม์ (ยิงคำสั่งเช็คจริงว่าเครื่องมือพร้อมใช้งานไหม)
+// เก็บผลไว้ในแคชสั้นๆ เพื่อไม่ให้หน้า Dashboard ต้องรอ probe ใหม่ทุกครั้งที่โหลด
+// ============================================================================
+const ENGINE_STATUS_TTL_MS = 60000; // แคช 1 นาที
+let engineStatusCache = { at: 0, data: null };
+
+const probeEngines = async () => {
+  const niktoScriptPath = path.join(__dirname, '../../tools/nikto/program/nikto.pl');
+  const niktoConfigPath = path.join(__dirname, '../../tools/nikto/program/nikto.conf.default');
+
+  const [nmapOut, sslyzeOut, niktoOut, zapOut] = await Promise.all([
+    runCommand('nmap', ['--version'], 10000),
+    // ต้องให้ python พิมพ์ค่ายืนยันออกมา เพราะ import เฉยๆ จะไม่มี output ทำให้แยกไม่ออกว่าสำเร็จหรือล้มเหลว
+    runCommand('python', ['-c', 'import sslyze; print("SSLYZE_OK")'], 20000),
+    fs.existsSync(niktoScriptPath)
+      ? runCommand('perl', [niktoScriptPath, '-Version', '-config', niktoConfigPath], 20000)
+      : Promise.resolve('COMMAND_ERROR: ไม่พบไฟล์ nikto.pl'),
+    runCommand('docker', ['image', 'inspect', 'zaproxy/zap-stable', '--format', '{{.Id}}'], 15000)
+  ]);
+
+  return [
+    {
+      key: 'nmap',
+      name: 'Nmap',
+      layer: 'Network Layer',
+      online: /nmap version/i.test(nmapOut),
+      detail: (nmapOut.match(/Nmap version [\d.]+/i) || ['ไม่พร้อมใช้งาน'])[0]
+    },
+    {
+      key: 'sslyze',
+      name: 'SSLyze',
+      layer: 'Transport Layer',
+      online: /SSLYZE_OK/.test(sslyzeOut || ''),
+      detail: /SSLYZE_OK/.test(sslyzeOut || '') ? 'โมดูล sslyze พร้อมใช้งาน' : 'ไม่พบโมดูล sslyze ใน Python'
+    },
+    {
+      key: 'nikto',
+      name: 'Nikto',
+      layer: 'Web Server Layer',
+      online: /nikto v?[\d.]+/i.test(niktoOut),
+      detail: (niktoOut.match(/Nikto v?[\d.]+/i) || ['ไม่พร้อมใช้งาน'])[0]
+    },
+    {
+      key: 'zap',
+      name: 'OWASP ZAP',
+      layer: 'Application Layer (DAST)',
+      online: /^sha256:/i.test((zapOut || '').trim()),
+      detail: /^sha256:/i.test((zapOut || '').trim())
+        ? 'Docker image พร้อมใช้งาน'
+        : 'Docker ไม่ทำงาน หรือยังไม่ได้ดึง image'
+    }
+  ];
+};
+
+exports.getEngineStatus = async (req, res) => {
+  try {
+    const now = Date.now();
+    if (engineStatusCache.data && now - engineStatusCache.at < ENGINE_STATUS_TTL_MS) {
+      return res.json({ success: true, cached: true, data: engineStatusCache.data });
+    }
+
+    const data = await probeEngines();
+    engineStatusCache = { at: now, data };
+    res.json({ success: true, cached: false, data });
+  } catch (error) {
+    console.error('Engine Status Error:', error);
+    res.status(500).json({ message: 'ไม่สามารถตรวจสอบสถานะเอนจินได้' });
+  }
+};
+
+// ⏱️ เวลาสูงสุดที่ยอมให้ ZAP Docker รัน ก่อนถูก kill (เป็นแค่เพดานบน ไม่ได้ทำให้สแกนที่เสร็จเร็วอยู่แล้วช้าลง)
+const ZAP_TIMEOUT_MS = 300000; // 5 นาที (3 นาทียังไม่พอสำหรับเว็บไซต์ขนาดใหญ่มากอย่าง youtube.com)
+
 // ⚡ 🐝 ฟังก์ชันรัน OWASP ZAP ผ่าน Docker และส่งออกผลลัพธ์เป็น JSON
 const runZapDocker = (targetUrl, scanId) => {
   return new Promise((resolve) => {
@@ -52,8 +152,12 @@ const runZapDocker = (targetUrl, scanId) => {
     const reportPath = path.join(reportDir, reportFileName);
     const normalizedReportDir = reportDir.replace(/\\/g, '/');
 
+    // 🏷️ ตั้งชื่อ container ไว้แน่นอน เพื่อให้ล้าง (force remove) ได้ตรงตัวเวลา Node kill คำสั่ง docker ฝั่ง client
+    // ไม่งั้น --rm จะไม่ทำงาน (มันลบ container ตอน container เอง exit เท่านั้น) กลายเป็น container ค้างกิน CPU/RAM ไปเรื่อยๆ
+    const containerName = `zap-scan-${scanId}`;
     const args = [
       'run', '--rm',
+      '--name', containerName,
       '-v', `${normalizedReportDir}:/zap/wrk/:rw`,
       '-t', 'zaproxy/zap-stable',
       'zap-baseline.py',
@@ -65,7 +169,12 @@ const runZapDocker = (targetUrl, scanId) => {
 
     console.log(`[Scan #${scanId}] ⚡ สั่งรัน OWASP ZAP Docker: ${targetUrl}`);
 
-    execFile('docker', args, { timeout: 90000, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile('docker', args, { timeout: ZAP_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      // 🧹 ถ้า Node สั่ง kill คำสั่ง docker ฝั่ง client (timeout) ต้องล้าง container ที่อาจยังค้างรันอยู่จริงด้วยตัวเอง
+      if (error && (error.killed || error.signal === 'SIGTERM')) {
+        execFile('docker', ['rm', '-f', containerName], () => {});
+      }
+
       if (fs.existsSync(reportPath)) {
         try {
           const rawData = fs.readFileSync(reportPath, 'utf-8');
@@ -73,15 +182,40 @@ const runZapDocker = (targetUrl, scanId) => {
           try { fs.unlinkSync(reportPath); } catch (e) {}
           return resolve({ success: true, data: zapJson, rawOutput: stdout || stderr });
         } catch (e) {
-          return resolve({ success: false, data: null, rawOutput: stderr || e.message });
+          return resolve({ success: false, data: null, rawOutput: stderr || e.message, skipReason: 'report_parse_error' });
         }
       }
 
+      // 🔍 วิเคราะห์สาเหตุที่แท้จริงที่ ZAP ไม่สามารถสแกนได้สำเร็จ แทนที่จะเหมาว่าเป็น WAF เสมอ
+      const combinedOutput = `${stdout || ''}\n${stderr || ''}`.toLowerCase();
       const cleanStdout = (stdout || '').trim();
-      const infoMsg = `Using the Automation Framework\n\n[OWASP ZAP Status]: เซิร์ฟเวอร์ปลายทาง (${targetUrl}) บล็อกการไต่ข้อมูล (SSL/TLS Renegotiation หรือ Web Application Firewall - WAF)\nระบบได้ข้ามขั้นตอน ZAP DAST และใช้ผลประเมินจาก Nmap, SSLyze, Nikto และ Security Headers ในการคำนวณคะแนนตามมาตรฐาน OWASP 2025`;
+      let skipReason = 'waf_or_ssl';
+      let reasonText = `เซิร์ฟเวอร์ปลายทาง (${targetUrl}) บล็อกการไต่ข้อมูล (SSL/TLS Renegotiation หรือ Web Application Firewall - WAF)`;
+
+      if (
+        (error && error.code === 'ENOENT') ||
+        combinedOutput.includes('cannot connect to the docker daemon') ||
+        combinedOutput.includes('failed to connect to the docker api') ||
+        combinedOutput.includes('docker daemon is not running')
+      ) {
+        skipReason = 'docker_unavailable';
+        reasonText = 'ไม่สามารถเชื่อมต่อกับ Docker ได้ กรุณาตรวจสอบว่า Docker Desktop เปิดใช้งานอยู่';
+      } else if (error && (error.killed || error.signal === 'SIGTERM')) {
+        skipReason = 'timeout';
+        reasonText = `การสแกนใช้เวลานานเกินกำหนด (Timeout ${Math.round(ZAP_TIMEOUT_MS / 1000)} วินาที) เป้าหมายอาจมีขนาดใหญ่หรือซับซ้อนเกินไป`;
+      } else if (
+        combinedOutput.includes('network is unreachable') ||
+        combinedOutput.includes('failed to access url') ||
+        combinedOutput.includes('connection refused')
+      ) {
+        skipReason = 'unreachable';
+        reasonText = `ไม่สามารถเชื่อมต่อไปยังเป้าหมาย (${targetUrl}) ได้ (Network unreachable / Connection refused) อาจเป็นเพราะพอร์ตดังกล่าวไม่ได้เปิดให้บริการจริง`;
+      }
+
+      const infoMsg = `Using the Automation Framework\n\n[OWASP ZAP Status]: ${reasonText}\nระบบได้ข้ามขั้นตอน ZAP DAST และใช้ผลประเมินจาก Nmap, SSLyze, Nikto และ Security Headers ในการคำนวณคะแนนตามมาตรฐาน OWASP 2025`;
       const finalLog = (cleanStdout && cleanStdout !== 'Using the Automation Framework') ? `${cleanStdout}\n\n${infoMsg}` : infoMsg;
 
-      resolve({ success: false, data: null, rawOutput: finalLog });
+      resolve({ success: false, data: null, rawOutput: finalLog, skipReason });
     });
   });
 };
@@ -94,18 +228,20 @@ const runNikto = (urlOrDomain) => {
     
     console.log(`[Nikto Engine] 🕷️ เริ่มสแกนเว็บเซิร์ฟเวอร์: ${targetDomain} (SSL: ${isHttps ? 'On' : 'Auto'})`);
     const niktoScriptPath = path.join(__dirname, '../../tools/nikto/program/nikto.pl');
+    // 🛠️ ระบุ -config ตรงๆ เพราะ nikto.pl หาไฟล์ config เองไม่เจอเวลารันข้าม working directory (เช่นผ่าน nodemon)
+    const niktoConfigPath = path.join(__dirname, '../../tools/nikto/program/nikto.conf.default');
 
-    const baseArgs = isHttps 
-      ? ['-h', targetDomain, '-ssl', '-Tuning', '123b', '-maxtime', '25s'] 
-      : ['-h', targetDomain, '-Tuning', '123b', '-maxtime', '25s'];
-    
+    const baseArgs = isHttps
+      ? ['-h', targetDomain, '-ssl', '-Tuning', '123b', '-maxtime', '25s', '-config', niktoConfigPath]
+      : ['-h', targetDomain, '-Tuning', '123b', '-maxtime', '25s', '-config', niktoConfigPath];
+
     let niktoOutput = '';
     if (fs.existsSync(niktoScriptPath)) {
       niktoOutput = await runCommand('perl', [niktoScriptPath, ...baseArgs], 35000);
       // ถ้ารันพอร์ต 80 ปกติแล้วล้มเหลวเนื่องจากเซิร์ฟเวอร์ปลายทางบังคับใช้ HTTPS ให้ลองอีกครั้งด้วยคำสั่ง -ssl
       if (!isHttps && (niktoOutput.includes('Unable to connect') || niktoOutput.includes('COMMAND_ERROR'))) {
         console.log(`[Nikto Engine] 🔄 เปลี่ยนโหมดลองสแกนด้วย SSL (-ssl) บนพอร์ต 443...`);
-        niktoOutput = await runCommand('perl', [niktoScriptPath, '-h', targetDomain, '-ssl', '-Tuning', '123b', '-maxtime', '25s'], 35000);
+        niktoOutput = await runCommand('perl', [niktoScriptPath, '-h', targetDomain, '-ssl', '-Tuning', '123b', '-maxtime', '25s', '-config', niktoConfigPath], 35000);
       }
     } else {
       niktoOutput = await runCommand('nikto', baseArgs, 35000);
@@ -252,7 +388,11 @@ const evaluateOwaspScores = (findings, bonusInputs) => {
   else if (hasLow) severityCeiling = 89;
 
   const finalScore = Math.min(rawScore, severityCeiling);
-  const grade = calculateGrade(finalScore);
+  const grade = calculateGrade(finalScore, {
+    hasCritical, hasHigh, hasMedium, hasLow,
+    scanComplete: bonusInputs?.scanComplete
+  });
+  const riskLevel = RISK_LEVEL_TEXT[grade];
 
   return {
     basePoints: 100,
@@ -262,6 +402,7 @@ const evaluateOwaspScores = (findings, bonusInputs) => {
     severityCeiling,
     finalScore,
     grade,
+    riskLevel,
     deductionBreakdown,
     bonusPoints: 0,
     bonusBreakdown: []
@@ -280,7 +421,7 @@ const collectFindings = ({ nmapOutput, sslyzeOutput, niktoRes, headerResult, zap
   const isNmapError = nmapLower.includes('command_error') || nmapLower.includes('not recognized');
   let totalOpenPorts = 0;
   let riskyPortsFound = [];
-  const HIGH_RISK_PORTS = ['21', '23', '3389', '445', '135', '139'];
+  const HIGH_RISK_PORTS = ['21', '23', '3389', '445', '135', '139', '1433', '3306', '5432', '6379', '27017', '9200'];
 
   if (!isNmapError) {
     const openPortLines = nmapOutput.match(/(\d+)\/tcp\s+open[^\n]*/g) || [];
@@ -349,13 +490,16 @@ const collectFindings = ({ nmapOutput, sslyzeOutput, niktoRes, headerResult, zap
   }
 
   // --- 5. OWASP ZAP ---
+  // 🔔 Alerts ของ ZAP ส่วนใหญ่เป็นแค่ "การแจ้งเตือน" (เช่น Missing Header ที่หลากหลายรูปแบบ) ไม่ใช่ช่องโหว่แยกกันจริงๆ
+  // จึงเก็บไว้แสดงผลเป็นรายการแจ้งเตือนทั้งหมดใน zapAlertsSummary แต่หักคะแนนแค่ครั้งเดียวจาก Alert ที่รุนแรงที่สุดเท่านั้น (ไม่หักซ้ำทีละ Alert)
   const zapAlertsSummary = [];
+  const ZAP_SEVERITY_RANK = { critical: 4, high: 3, medium: 2, low: 1 };
+  let worstZapFinding = null;
   if (zapRes.success && zapRes.data) {
     const alerts = zapRes.data.site?.[0]?.alerts || [];
     alerts.forEach(alert => {
       const risk = alert.riskcode;
       const nameLower = alert.name.toLowerCase();
-      zapAlertsSummary.push({ name: alert.name, risk: alert.riskdesc });
 
       let category = 'A02';
       if (nameLower.includes('access control') || nameLower.includes('ssrf') || nameLower.includes('idor')) {
@@ -392,8 +536,22 @@ const collectFindings = ({ nmapOutput, sslyzeOutput, niktoRes, headerResult, zap
         cvss = 5.0;
       }
 
-      findings.push({ source: 'OWASP ZAP', category, severity, cvss, label: alert.name });
+      zapAlertsSummary.push({ name: alert.name, risk: alert.riskdesc, category, severity, cvss });
+
+      if (!worstZapFinding || ZAP_SEVERITY_RANK[severity] > ZAP_SEVERITY_RANK[worstZapFinding.severity]) {
+        worstZapFinding = { source: 'OWASP ZAP', category, severity, cvss, label: alert.name };
+      }
     });
+
+    // 🎯 หักคะแนนจาก ZAP แค่ครั้งเดียว โดยใช้ Alert ที่รุนแรงที่สุดเป็นตัวแทน ส่วนที่เหลือแสดงเป็นแจ้งเตือนอย่างเดียว
+    if (worstZapFinding) {
+      findings.push({
+        ...worstZapFinding,
+        label: alerts.length > 1
+          ? `${worstZapFinding.label} (และอีก ${alerts.length - 1} รายการแจ้งเตือนจาก ZAP)`
+          : worstZapFinding.label
+      });
+    }
   }
 
   return {
@@ -454,7 +612,7 @@ exports.startScan = async (req, res) => {
 
     // ⚡ รันเอนจิน Nmap, SSLyze, Nikto และ Header Check แบบขนาน (Parallel Execution) เพื่อความเร็วสูงสุด
     const [nmapOutput, sslyzeOutput, niktoRes, headerResult] = await Promise.all([
-      runCommand('nmap', ['-Pn', '-F', '-T4', '--host-timeout', '20s', '--max-retries', '1', targetDomain], 25000),
+      runCommand('nmap', ['-Pn', '-p', NMAP_TARGET_PORTS, '-T4', '--host-timeout', '20s', '--max-retries', '1', targetDomain], 25000),
       runCommand('python', ['-m', 'sslyze', '--json_out', '-', targetDomain], 50000),
       runNikto(url),
       checkSecurityHeaders(url)
@@ -462,7 +620,18 @@ exports.startScan = async (req, res) => {
 
     activeScanProgress.set(scanId, { currentStep: 4, percent: 65, message: 'กำลังรัน OWASP ZAP DAST Container...' });
 
-    const zapTargetUrl = url.startsWith('http') ? url : `https://${url}`;
+    // 🌐 เลือกโปรโตคอลให้ ZAP ตาม Nmap ที่สแกนไปแล้ว แทนที่จะยัด https:// เสมอ
+    // เพราะถ้าเป้าหมายไม่มีพอร์ต 443 เปิดอยู่ ZAP จะต่อ HTTPS ไม่ติด ("Network unreachable")
+    // ซึ่งไม่ใช่การโดน WAF บล็อกจริงๆ แค่โปรโตคอลที่เลือกผิด
+    const hasOpenPort = (output, port) => new RegExp(`${port}\\/tcp\\s+open`).test(output);
+    let zapTargetUrl;
+    if (url.startsWith('http')) {
+      zapTargetUrl = url;
+    } else if (!hasOpenPort(nmapOutput, 443) && hasOpenPort(nmapOutput, 80)) {
+      zapTargetUrl = `http://${url}`;
+    } else {
+      zapTargetUrl = `https://${url}`;
+    }
     const zapRes = await runZapDocker(zapTargetUrl, scanId);
 
     activeScanProgress.set(scanId, { currentStep: 5, percent: 95, message: 'กำลังประมวลผลคะแนนตามมาตรฐาน OWASP 2025...' });
@@ -492,6 +661,8 @@ exports.startScan = async (req, res) => {
       riskyPortsLength: collected.riskyPortsFound.length,
       totalOpenPorts: collected.totalOpenPorts,
       isBannerHidden: headerResult.isBannerHidden && !niktoRes.hasServerBanner,
+      // ครบถ้วน = ทั้ง 4 เอนจินรันสำเร็จ (ใช้ตัดสินเกรด A ตามเกณฑ์ใหม่)
+      scanComplete: !collected.isNmapError && !collected.isSSLyzeError && niktoRes.success && zapRes.success,
       url
     });
 
@@ -504,6 +675,7 @@ exports.startScan = async (req, res) => {
       summary: {
         finalScore: evalResult.finalScore,
         grade: evalResult.grade,
+        riskLevel: evalResult.riskLevel,
         basePoints: evalResult.basePoints,
         totalDeduction: evalResult.totalDeduction,
         totalRiskPoints: evalResult.totalRiskPoints,
@@ -524,6 +696,7 @@ exports.startScan = async (req, res) => {
         is_nikto_success: niktoRes.success,
         nikto_raw: niktoRes.rawOutput || 'No raw output from Nikto',
         is_zap_success: zapRes.success,
+        zap_skip_reason: zapRes.success ? null : (zapRes.skipReason || 'waf_or_ssl'),
         missing_security_headers: headerResult.missingHeaders,
         zap_alerts: collected.zapAlertsSummary
       }
@@ -557,7 +730,7 @@ exports.publicScan = async (req, res) => {
 
     console.log(`[Public Scan] เป้าหมาย: ${targetDomain}`);
     const [nmapOutput, sslyzeOutput, niktoRes, headerResult] = await Promise.all([
-      runCommand('nmap', ['-Pn', '-F', '-T4', '--host-timeout', '20s', '--max-retries', '1', targetDomain], 25000),
+      runCommand('nmap', ['-Pn', '-p', NMAP_TARGET_PORTS, '-T4', '--host-timeout', '20s', '--max-retries', '1', targetDomain], 25000),
       runCommand('python', ['-m', 'sslyze', '--json_out', '-', targetDomain], 50000),
       runNikto(url),
       checkSecurityHeaders(url)
@@ -580,6 +753,8 @@ exports.publicScan = async (req, res) => {
       riskyPortsLength: collected.riskyPortsFound.length,
       totalOpenPorts: collected.totalOpenPorts,
       isBannerHidden: headerResult.isBannerHidden && !niktoRes.hasServerBanner,
+      // Public scan ไม่รัน ZAP โดยตั้งใจ จึงนับครบถ้วนจากแค่ nmap/sslyze/nikto/headers
+      scanComplete: !collected.isNmapError && !collected.isSSLyzeError && niktoRes.success && headerResult.success,
       url
     });
 
@@ -588,7 +763,7 @@ exports.publicScan = async (req, res) => {
       status: 'completed',
       targetUrl: url,
       data: {
-        summary: { finalScore: evalResult.finalScore, grade: evalResult.grade },
+        summary: { finalScore: evalResult.finalScore, grade: evalResult.grade, riskLevel: evalResult.riskLevel },
         deductionBreakdown: evalResult.deductionBreakdown,
         bonusBreakdown: evalResult.bonusBreakdown,
         details: {
@@ -644,14 +819,26 @@ exports.getScanHistory = async (req, res) => {
       let parsedMapping = row.owasp_mapping;
       if (typeof parsedMapping === 'string') { try { parsedMapping = JSON.parse(parsedMapping); } catch (e) { } }
       const versionName = parsedMapping?.version_name || `v1.${rows.length - index - 1}`;
-      return { 
-        id: row.id, 
-        targetUrl: row.target_url, 
-        status: row.status, 
-        createdAt: row.created_at, 
-        versionName, 
-        grade: parsedMapping?.summary?.grade || 'N/A', 
-        score: parsedMapping?.summary?.finalScore || 0 
+
+      // 🩺 สแกนอาจปิดเป็น 'completed' ได้แม้บางเอนจินย่อยจะ error/timeout/ถูกข้าม
+      // เก็บ flag นี้ไว้แยกต่างหาก เพื่อให้หน้าแดชบอร์ดนับ "สแกนที่มีปัญหา" ได้ครบ ไม่ใช่แค่ status ล้มทั้งกระบวนการ
+      const d = parsedMapping?.details;
+      const hasEngineIssue = row.status === 'completed' && !!d && (
+        d.is_nmap_success === false ||
+        d.is_sslyze_success === false ||
+        d.is_nikto_success === false ||
+        d.is_zap_success === false
+      );
+
+      return {
+        id: row.id,
+        targetUrl: row.target_url,
+        status: row.status,
+        createdAt: row.created_at,
+        versionName,
+        grade: parsedMapping?.summary?.grade || 'N/A',
+        score: parsedMapping?.summary?.finalScore || 0,
+        hasEngineIssue
       };
     });
     res.json({ success: true, data: historyData });
@@ -745,6 +932,49 @@ exports.getDashboardStats = async (req, res) => {
     });
     res.json({ success: true, data: { summary: { totalScans, completedScans, failedScans, safeCount, riskyCount }, vulnStats, gradeDistribution } });
   } catch (error) { res.status(500).json({ message: 'เกิดข้อผิดพลาด' }); }
+};
+
+// 📈 แนวโน้มคะแนนความปลอดภัยย้อนหลัง — คำนวณอัตโนมัติจากประวัติการสแกนจริงที่มีอยู่แล้ว
+// (ไม่ใช่การสแกนใหม่ แค่สรุปคะแนนเฉลี่ยรายวันของสแกนที่เคยรันไปแล้วในช่วงเวลาที่ขอ)
+exports.getSecurityTrend = async (req, res) => {
+  try {
+    const activeUser = req.user || req.userData || req.user_info || req.auth;
+    const userId = activeUser ? (activeUser.id || activeUser.userId || activeUser._id || activeUser.memberId) : null;
+    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อน' });
+
+    const rangeDays = req.query.range === '90' ? 90 : 30;
+
+    const [scans] = await db.execute(
+      `SELECT owasp_mapping, created_at FROM scan_results
+       WHERE user_id = ? AND status = 'completed' AND created_at >= (NOW() - INTERVAL ? DAY)
+       ORDER BY created_at ASC`,
+      [userId, rangeDays]
+    );
+
+    // จัดกลุ่มตามวันที่ (เวลาไทย) แล้วเฉลี่ยคะแนนของวันนั้น เผื่อวันเดียวกันสแกนหลายครั้ง
+    const byDate = new Map();
+    scans.forEach((row) => {
+      let mapping = row.owasp_mapping;
+      if (typeof mapping === 'string') { try { mapping = JSON.parse(mapping); } catch (e) { mapping = null; } }
+      const score = mapping?.summary?.finalScore;
+      if (score === undefined || score === null) return;
+
+      const dateKey = new Date(row.created_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' }); // YYYY-MM-DD
+      if (!byDate.has(dateKey)) byDate.set(dateKey, { total: 0, count: 0 });
+      const bucket = byDate.get(dateKey);
+      bucket.total += score;
+      bucket.count += 1;
+    });
+
+    const trend = Array.from(byDate.entries())
+      .map(([date, { total, count }]) => ({ date, avgScore: Math.round(total / count), scans: count }))
+      .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    res.json({ success: true, rangeDays, data: trend });
+  } catch (error) {
+    console.error('Security Trend Error:', error);
+    res.status(500).json({ message: 'ไม่สามารถโหลดแนวโน้มความปลอดภัยได้' });
+  }
 };
 
 // 🆚 เปรียบเทียบผลการสแกนระหว่าง 2 เวอร์ชัน (Version Comparison Analytics)

@@ -19,7 +19,8 @@ import {
   Flame,
   MinusCircle,
   PlusCircle,
-  Globe
+  Globe,
+  Bell
 } from 'lucide-react';
 
 const SEVERITY_LEGEND = [
@@ -65,6 +66,75 @@ const SEVERITY_META = {
 
 const getSeverityMeta = (severity) => SEVERITY_META[severity] || SEVERITY_META.Low;
 
+// 🛠️ คำอธิบายการทำงานของแต่ละเอนจินสแกน แสดงในป็อปอัพเมื่อคลิกที่การ์ดผลลัพธ์
+const TOOL_INFO = {
+  nmap: {
+    icon: Server,
+    color: 'text-purple-600',
+    bg: 'bg-purple-50',
+    title: 'Nmap — Network Layer Scanner',
+    owasp: 'OWASP A02: Security Misconfiguration',
+    desc: 'สำรวจพอร์ตเครือข่ายที่เปิดสู่สาธารณะ ค้นหาพอร์ตบริหารจัดการและฐานข้อมูลที่สุ่มเสี่ยง',
+    subtasks: [
+      'ส่งแพ็กเก็ต TCP SYN สแกนหาพอร์ตที่มีสถานะเปิด (Port 1-65535)',
+      'ตรวจสอบประเภทและเลขเวอร์ชันของบริการ (Service Version Detection)',
+      'เช็กพอร์ตสุ่มเสี่ยงสูง (SSH 22, Telnet 23, MySQL 3306, RDP 3389)'
+    ]
+  },
+  sslyze: {
+    icon: ShieldCheck,
+    color: 'text-blue-600',
+    bg: 'bg-blue-50',
+    title: 'SSLyze — Transport Layer Scanner',
+    owasp: 'OWASP A04: Cryptographic Failures',
+    desc: 'ตรวจสอบมาตรฐานโปรโตคอล TLS/SSL และความถูกต้องของใบรับรองอิเล็กทรอนิกส์',
+    subtasks: [
+      'ตรวจสอบความน่าเชื่อถือ วันหมดอายุ และห่วงโซ่ใบรับรอง (Certificate Chain)',
+      'วิเคราะห์การรองรับ Protocol ล้าสมัย (SSLv2, SSLv3, TLS 1.0, TLS 1.1)',
+      'สแกนชุด Cipher Suites และตรวจหาช่องโหว่ Heartbleed / POODLE'
+    ]
+  },
+  nikto: {
+    icon: Globe,
+    color: 'text-cyan-600',
+    bg: 'bg-cyan-50',
+    title: 'Nikto — Web Server Layer Scanner',
+    owasp: 'OWASP A02: Security Misconfiguration',
+    desc: 'สแกนหาไฟล์สำรอง ไฟล์คอนฟิกเปิดเผย และการเปิดใช้ HTTP Methods ที่อันตราย',
+    subtasks: [
+      'สแกนหาไฟล์ตกค้างและไฟล์สำรอง (.env, .bak, /admin, /config)',
+      'ตรวจเช็กการเปิดใช้งาน HTTP Methods ที่สุ่มเสี่ยง (PUT, DELETE, TRACE)',
+      'ตรวจสอบการรั่วไหลของ Server Version Banner บนเว็บเซิร์ฟเวอร์'
+    ]
+  },
+  headers: {
+    icon: CheckCircle,
+    color: 'text-teal-600',
+    bg: 'bg-teal-50',
+    title: 'Security Headers — Header Verification',
+    owasp: 'OWASP A02: Security Misconfiguration',
+    desc: 'ตรวจสอบ Headers สำคัญที่เซิร์ฟเวอร์ตอบกลับ เพื่อป้องกันการโจมตีทางเว็บเบื้องต้น',
+    subtasks: [
+      'ตรวจสอบการบังคับใช้ HTTPS ผ่าน Strict-Transport-Security (HSTS)',
+      'วิเคราะห์นโยบายควบคุมการรันสคริปต์ Content-Security-Policy (CSP)',
+      'ตรวจเช็กการป้องกัน Clickjacking (X-Frame-Options) และ X-Content-Type-Options'
+    ]
+  },
+  zap: {
+    icon: Flame,
+    color: 'text-amber-500',
+    bg: 'bg-amber-50',
+    title: 'OWASP ZAP — Application Layer (DAST)',
+    owasp: 'OWASP A01 / A03 / A05 / A07 / A10',
+    desc: 'จำลองการโจมตีขณะรันไทม์เพื่อค้นหาช่องโหว่ระดับโค้ดและ Business Logic',
+    subtasks: [
+      'ตรวจหาช่องโหว่การแทรกคำสั่งอันตราย (SQL Injection, XSS)',
+      'สแกนหาข้อผิดพลาดของระบบยืนยันตัวตน และ Cookie Security Flags',
+      'ตรวจเช็กการรั่วไหลของข้อมูลภายใน (Stack Trace / Verbose Error Messages)'
+    ]
+  }
+};
+
 const ScanResultPage = () => {
   const { scanId } = useParams();
   const navigate = useNavigate();
@@ -74,6 +144,7 @@ const ScanResultPage = () => {
   const [error, setError] = useState(null);
   const [activeRawTab, setActiveRawTab] = useState('nmap');
   const [showScoringModal, setShowScoringModal] = useState(false);
+  const [activeToolInfo, setActiveToolInfo] = useState(null);
 
   useEffect(() => {
     fetchScanStatus();
@@ -204,9 +275,11 @@ const ScanResultPage = () => {
               {summary.finalScore ?? 0} <span className="text-xs text-slate-400 font-normal">/ 100 Points</span>
             </p>
             {summary.totalRiskPoints !== undefined && (
-              <div className="mt-2 text-[10px] font-medium text-slate-300 space-y-0.5 border-t border-white/10 pt-2 w-full text-center">
+              <div className="mt-2 text-[10px] font-medium text-slate-300 space-y-1 border-t border-white/10 pt-2 w-full text-center">
                 <p>Total Risk Points: <strong className="text-rose-300 font-bold">{summary.totalRiskPoints}</strong></p>
-                <p>Raw Score: <strong className="text-blue-200 font-bold">{summary.rawScore ?? 100}</strong> | Ceiling: <strong className="text-amber-300 font-bold">{summary.severityCeiling ?? 100}</strong></p>
+                {summary.riskLevel && (
+                  <p className="text-xs font-black text-white">ระดับความเสี่ยง: {summary.riskLevel}</p>
+                )}
               </div>
             )}
             {summary.isAutoFail && (
@@ -221,17 +294,21 @@ const ScanResultPage = () => {
       {/* SECTION 2: 5-Tool Status Grid */}
       <div className="space-y-3">
         <h3 className="text-xs font-black text-slate-400 uppercase tracking-wider px-1">
-          ผลการทำงานของเอนจินสแกนทั้ง 5 ระบบ (5-Engine Status Suite)
+          ผลการทำงานของเอนจินสแกนทั้ง 4 ระบบ (4-Engine Status Suite)
         </h3>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
           
           {/* Card 1: Nmap */}
-          <div className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-2xl p-4 shadow-sm border-t-4 border-t-purple-500 flex flex-col justify-between space-y-3 hover:border-purple-300 transition-all">
+          <div
+            onClick={() => setActiveToolInfo('nmap')}
+            className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-2xl p-4 shadow-sm border-t-4 border-t-purple-500 flex flex-col justify-between space-y-3 hover:border-purple-300 hover:shadow-md transition-all cursor-pointer"
+          >
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <h4 className="text-xs font-extrabold text-slate-900 flex items-center gap-1">
                   <Server className="w-3.5 h-3.5 text-purple-600" /> Nmap
+                  <Info className="w-3 h-3 text-slate-300" />
                 </h4>
                 <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${details.is_nmap_success ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
                   {details.is_nmap_success ? 'SUCCESS' : 'ERROR'}
@@ -252,11 +329,15 @@ const ScanResultPage = () => {
           </div>
 
           {/* Card 2: SSLyze */}
-          <div className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-2xl p-4 shadow-sm border-t-4 border-t-blue-500 flex flex-col justify-between space-y-3 hover:border-blue-300 transition-all">
+          <div
+            onClick={() => setActiveToolInfo('sslyze')}
+            className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-2xl p-4 shadow-sm border-t-4 border-t-blue-500 flex flex-col justify-between space-y-3 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer"
+          >
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <h4 className="text-xs font-extrabold text-slate-900 flex items-center gap-1">
                   <ShieldCheck className="w-3.5 h-3.5 text-blue-600" /> SSLyze
+                  <Info className="w-3 h-3 text-slate-300" />
                 </h4>
                 <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${details.is_sslyze_success ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
                   {details.is_sslyze_success ? 'SUCCESS' : 'ERROR'}
@@ -281,11 +362,15 @@ const ScanResultPage = () => {
           </div>
 
           {/* Card 3: Nikto Web Server Scanner */}
-          <div className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-2xl p-4 shadow-sm border-t-4 border-t-cyan-500 flex flex-col justify-between space-y-3 hover:border-cyan-300 transition-all">
+          <div
+            onClick={() => setActiveToolInfo('nikto')}
+            className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-2xl p-4 shadow-sm border-t-4 border-t-cyan-500 flex flex-col justify-between space-y-3 hover:border-cyan-300 hover:shadow-md transition-all cursor-pointer"
+          >
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <h4 className="text-xs font-extrabold text-slate-900 flex items-center gap-1">
                   <Globe className="w-3.5 h-3.5 text-cyan-600" /> Nikto
+                  <Info className="w-3 h-3 text-slate-300" />
                 </h4>
                 <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${details.is_nikto_success ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
                   {details.is_nikto_success ? 'SUCCESS' : 'ERROR'}
@@ -298,6 +383,13 @@ const ScanResultPage = () => {
             <div className="bg-slate-50 rounded-xl p-2.5 text-xs font-semibold text-slate-700">
               {(() => {
                 const niktoFindings = deductionBreakdown.filter((d) => d.source === 'Nikto');
+                if (!details.is_nikto_success) {
+                  return (
+                    <p className="text-rose-600 font-bold text-[10px] flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" /> สแกนไม่สำเร็จ ไม่มีข้อมูลผลตรวจสอบ
+                    </p>
+                  );
+                }
                 return niktoFindings.length > 0 ? (
                   <p className="text-orange-600 font-bold text-[10px]">
                     พบข้อสังเกต: {niktoFindings.map(f => f.label).join(', ')}
@@ -311,41 +403,24 @@ const ScanResultPage = () => {
             </div>
           </div>
 
-          {/* Card 4: Fetch Security Headers */}
-          <div className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-2xl p-4 shadow-sm border-t-4 border-t-teal-500 flex flex-col justify-between space-y-3 hover:border-teal-300 transition-all">
-            <div>
-              <div className="flex justify-between items-center mb-1.5">
-                <h4 className="text-xs font-extrabold text-slate-900 flex items-center gap-1">
-                  <CheckCircle className="w-3.5 h-3.5 text-teal-600" /> Headers
-                </h4>
-                <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">READY</span>
-              </div>
-              <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
-                HTTP Security Headers
-              </p>
-            </div>
-            <div className="bg-slate-50 rounded-xl p-2.5 text-xs font-semibold text-slate-700">
-              {details.missing_security_headers && details.missing_security_headers.length > 0 ? (
-                <p className="text-rose-600 font-bold text-[10px] truncate">
-                  ขาด: {details.missing_security_headers.join(', ')}
-                </p>
-              ) : (
-                <p className="text-emerald-600 font-bold text-[10px] flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3" /> ครบถ้วนปลอดภัย
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Card 5: OWASP ZAP */}
-          <div className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-2xl p-4 shadow-sm border-t-4 border-t-amber-500 flex flex-col justify-between space-y-3 hover:border-amber-300 transition-all">
+          {/* Card 4: OWASP ZAP */}
+          <div
+            onClick={() => setActiveToolInfo('zap')}
+            className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-2xl p-4 shadow-sm border-t-4 border-t-amber-500 flex flex-col justify-between space-y-3 hover:border-amber-300 hover:shadow-md transition-all cursor-pointer"
+          >
             <div>
               <div className="flex justify-between items-center mb-1.5">
                 <h4 className="text-xs font-extrabold text-slate-900 flex items-center gap-1">
                   <Flame className="w-3.5 h-3.5 text-amber-500" /> OWASP ZAP
+                  <Info className="w-3 h-3 text-slate-300" />
                 </h4>
                 <span className={`text-[9px] font-black px-2 py-0.5 rounded-full ${details.is_zap_success ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}>
-                  {details.is_zap_success ? 'SUCCESS' : 'SKIPPED (WAF)'}
+                  {details.is_zap_success ? 'SUCCESS' : {
+                    docker_unavailable: 'SKIPPED (DOCKER)',
+                    timeout: 'SKIPPED (TIMEOUT)',
+                    unreachable: 'SKIPPED (UNREACHABLE)',
+                    report_parse_error: 'SKIPPED (ERROR)'
+                  }[details.zap_skip_reason] || 'SKIPPED (WAF)'}
                 </span>
               </div>
               <p className="text-[10px] text-slate-500 leading-relaxed font-medium">
@@ -359,7 +434,14 @@ const ScanResultPage = () => {
                   {zapAlerts.length} รายการ
                 </strong>
               ) : (
-                <span className="text-amber-700 font-bold text-[10px]">บล็อกโดย WAF / SSL</span>
+                <span className="text-amber-700 font-bold text-[10px]">
+                  {{
+                    docker_unavailable: 'Docker ไม่ทำงาน',
+                    timeout: 'สแกนไม่ทันเวลา (Timeout)',
+                    unreachable: 'เชื่อมต่อเป้าหมายไม่ได้',
+                    report_parse_error: 'อ่านผลลัพธ์ไม่สำเร็จ'
+                  }[details.zap_skip_reason] || 'บล็อกโดย WAF / SSL'}
+                </span>
               )}
             </div>
           </div>
@@ -426,6 +508,35 @@ const ScanResultPage = () => {
           </div>
         )}
       </div>
+
+      {/* SECTION 3.5: OWASP ZAP Alerts — แจ้งเตือนเสริม ไม่ใช่ช่องโหว่ที่ถูกหักคะแนนแยกทีละรายการ */}
+      {zapAlerts.length > 0 && (
+        <div className="bg-white/90 backdrop-blur-xl border border-slate-200/80 rounded-3xl shadow-xl shadow-blue-500/5 p-6 md:p-8 space-y-4">
+          <div>
+            <h3 className="text-base font-black text-slate-900 flex items-center gap-2">
+              <Bell className="w-4.5 h-4.5 text-amber-500" />
+              แจ้งเตือน Alerts จาก OWASP ZAP ({zapAlerts.length} รายการ)
+            </h3>
+            <p className="text-xs text-slate-500 font-medium mt-1">
+              รายการทั้งหมดที่ ZAP ตรวจพบ แสดงไว้เพื่อแจ้งเตือนเท่านั้น ไม่ได้ถูกหักคะแนนแยกทีละรายการ — ระบบหักคะแนนจาก Alert ที่รุนแรงที่สุดเพียงรายการเดียวเท่านั้น (ดูได้ในตารางด้านบน)
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {zapAlerts.map((alert, idx) => {
+              const sevLabel = (alert.severity || 'low').charAt(0).toUpperCase() + (alert.severity || 'low').slice(1);
+              const meta = getSeverityMeta(sevLabel);
+              return (
+                <div key={idx} className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/60">
+                  <span className="text-[11px] font-semibold text-slate-700 truncate">{alert.name}</span>
+                  <span className={`shrink-0 px-2 py-0.5 rounded-md font-black text-[9px] ${meta.bg} ${meta.text}`}>
+                    {sevLabel}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* SECTION 4: Bonus Points Breakdown */}
       {bonusBreakdown.length > 0 && (
@@ -594,6 +705,61 @@ const ScanResultPage = () => {
           </div>
         </div>
       )}
+
+      {/* Modal: Tool Info — คำอธิบายการทำงานของเอนจินสแกนแต่ละตัว */}
+      {activeToolInfo && (() => {
+        const tool = TOOL_INFO[activeToolInfo];
+        const ToolIcon = tool.icon;
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-slate-200 space-y-5">
+
+              <div className="flex items-start justify-between pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-2xl ${tool.bg} ${tool.color} flex items-center justify-center shrink-0`}>
+                    <ToolIcon className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-slate-900">{tool.title}</h3>
+                    <p className="text-[10px] text-slate-400 font-bold mt-0.5">{tool.owasp}</p>
+                  </div>
+                </div>
+                <button onClick={() => setActiveToolInfo(null)} className="text-slate-400 hover:text-slate-600 font-bold text-lg cursor-pointer shrink-0">
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed font-medium">
+                {tool.desc}
+              </p>
+
+              <div className="space-y-1.5">
+                <p className="text-[10px] font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <Terminal className="w-3.5 h-3.5 text-slate-500" /> รายการที่เครื่องมือนี้ตรวจสอบ
+                </p>
+                <ul className="space-y-1.5 pl-1">
+                  {tool.subtasks.map((sub, idx) => (
+                    <li key={idx} className="text-[11px] text-slate-700 flex items-start gap-2 font-medium">
+                      <span className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0 mt-1.5" />
+                      <span>{sub}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="pt-2 flex justify-end">
+                <button
+                  onClick={() => setActiveToolInfo(null)}
+                  className="px-6 py-2.5 bg-blue-900 hover:bg-blue-950 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer transition-all"
+                >
+                  เข้าใจแล้ว
+                </button>
+              </div>
+
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );

@@ -58,7 +58,7 @@ export default function ScanHistoryPage() {
 
       // 2. จัดหมวดหมู่ตามความเสี่ยง
       if (categoryFilter === 'risky') {
-        return matchesSearch && (item.grade === 'D' || item.grade === 'F' || (item.finalScore ?? 100) < 50);
+        return matchesSearch && (item.grade === 'D' || item.grade === 'F' || (item.score ?? 100) < 50);
       }
       if (categoryFilter === 'safe') {
         return matchesSearch && (item.grade === 'A' || item.grade === 'B');
@@ -67,15 +67,15 @@ export default function ScanHistoryPage() {
     })
     .sort((a, b) => {
       // 3. เรียงลำดับข้อมูล
-      if (sortBy === 'score-asc') return (a.finalScore ?? 0) - (b.finalScore ?? 0);
-      if (sortBy === 'score-desc') return (b.finalScore ?? 0) - (a.finalScore ?? 0);
+      if (sortBy === 'score-asc') return (a.score ?? 0) - (b.score ?? 0);
+      if (sortBy === 'score-desc') return (b.score ?? 0) - (a.score ?? 0);
       return new Date(b.createdAt) - new Date(a.createdAt); // latest
     });
 
   // สถิติสรุปภาพรวม (Metrics Summary)
   const totalScans = historyList.length;
   const safeScans = historyList.filter(i => i.grade === 'A' || i.grade === 'B').length;
-  const riskyScans = historyList.filter(i => i.grade === 'D' || i.grade === 'F' || (i.finalScore ?? 100) < 50).length;
+  const riskyScans = historyList.filter(i => i.grade === 'D' || i.grade === 'F' || (i.score ?? 100) < 50).length;
 
   const getGradeBadge = (grade) => {
     switch (grade) {
@@ -245,7 +245,7 @@ export default function ScanHistoryPage() {
               </thead>
               <tbody className="divide-y divide-slate-100 font-bold">
                 {filteredList.map((item) => {
-                  const score = item.finalScore ?? 0;
+                  const score = item.score ?? 0;
                   const formattedDate = item.createdAt 
                     ? new Date(item.createdAt).toLocaleDateString('th-TH', {
                         year: 'numeric',

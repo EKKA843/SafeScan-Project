@@ -4,3 +4,5 @@ dist/
 *.log
 backend/temp_reports/
 backend/-.json
+backend/.env
+backend/tools/nikto/
