@@ -17,10 +17,10 @@
 1. สร้างโฟลเดอร์ว่าง ๆ ในเครื่องคอมพิวเตอร์ของนาย
 2. เปิด Command Prompt / Terminal ในโฟลเดอร์นั้น
 3. พิมพ์คำสั่งนี้แล้วกด Enter เพื่อดึงโค้ดลงมา:
-   git clone https://github.com/EKKA843/SafeScan-Project.git
+   git clone https://github.com/MojiEmika/SafeScan.git
 
 4. พอโหลดเสร็จ ให้พิมพ์คำสั่งเดินเข้าโฟลเดอร์โปรเจกต์:
-   cd SafeScan-Project
+   cd SafeScan
 
 ------------------------------------------------------------
 📦 สเต็ปที่ 3: ติดตั้ง Library (เนื่องจากไม่ได้เอา node_modules ขึ้นไป)
@@ -50,7 +50,14 @@
 6. คลิกที่แท็บ "Import Progress" (อยู่ด้านบนข้างๆ แท็บ Object Selection) แล้วกดปุ่ม "Start Import" ที่มุมขวาล่างสุด
 
 ⚠️ สำคัญมากก่อนรัน: 
-ให้เข้าไปเปิดไฟล์ `src/config/db.js` ในโฟลเดอร์ backend แล้วแก้ไขค่า `user` และ `password` ของ MySQL ให้ตรงกับรหัสผ่านที่นายใช้เข้า MySQL Workbench ในเครื่องตัวเองด้วยนะ!
+ไฟล์ `.env` ไม่ได้อยู่ใน repo (ตัดออกเพราะมีรหัสผ่านจริงอยู่ข้างใน) ให้นายสร้างไฟล์ใหม่เองที่ `backend/.env` แล้วใส่ค่าตามนี้ (แก้ค่าตามเครื่องตัวเอง):
+
+   PORT=5000
+   DB_HOST=localhost
+   DB_USER=root
+   DB_PASSWORD=รหัสผ่าน_MySQL_ของตัวเอง
+   DB_NAME=safescan
+   JWT_SECRET=ตั้งอะไรก็ได้_เป็นข้อความยาวๆ_สุ่มๆ
 
 ------------------------------------------------------------
 🚀 สเต็ปที่ 5: วิธีสั่งรันโปรเจกต์ (Start Project)
