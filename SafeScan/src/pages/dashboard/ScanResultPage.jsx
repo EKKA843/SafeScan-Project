@@ -546,16 +546,15 @@ const ScanResultPage = () => {
               );
               if (alertsInSeverity.length === 0) return null;
               const meta = getSeverityMeta(sevLabel);
-              const topBorderColor = { High: 'border-t-orange-500', Medium: 'border-t-amber-500', Low: 'border-t-blue-500' }[sevLabel];
               return (
-                <div key={sevLabel} className={`rounded-2xl border border-slate-200/80 border-t-4 ${topBorderColor} p-4 bg-white shadow-sm`}>
+                <div key={sevLabel} className={`rounded-2xl p-4 ${meta.bg}`}>
                   <h4 className={`text-[14px] font-black mb-3 ${meta.text}`}>
                     {sevLabel} ({alertsInSeverity.length})
                   </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="space-y-2">
                     {alertsInSeverity.map((alert, idx) => (
-                      <div key={idx} className="bg-slate-50 rounded-xl px-3.5 py-2.5">
-                        <span className="text-[16px] font-semibold text-slate-700">{alert.name}</span>
+                      <div key={idx} className="bg-white rounded-xl px-3.5 py-2.5">
+                        <span className="text-[13px] font-semibold text-slate-700">{alert.name}</span>
                       </div>
                     ))}
                   </div>
