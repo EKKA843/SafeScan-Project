@@ -539,16 +539,26 @@ const ScanResultPage = () => {
               รายการทั้งหมดที่ ZAP ตรวจพบ แสดงไว้เพื่อแจ้งเตือนเท่านั้น ไม่ได้ถูกหักคะแนนแยกทีละรายการ — ระบบหักคะแนนจาก Alert ที่รุนแรงที่สุดเพียงรายการเดียวเท่านั้น (ดูได้ในตารางด้านบน)
             </p>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-            {zapAlerts.map((alert, idx) => {
-              const sevLabel = (alert.severity || 'low').charAt(0).toUpperCase() + (alert.severity || 'low').slice(1);
+          <div className="space-y-3">
+            {['High', 'Medium', 'Low'].map((sevLabel) => {
+              const alertsInSeverity = zapAlerts.filter(
+                (alert) => ((alert.severity || 'low').charAt(0).toUpperCase() + (alert.severity || 'low').slice(1)) === sevLabel
+              );
+              if (alertsInSeverity.length === 0) return null;
               const meta = getSeverityMeta(sevLabel);
+              const topBorderColor = { High: 'border-t-orange-500', Medium: 'border-t-amber-500', Low: 'border-t-blue-500' }[sevLabel];
               return (
-                <div key={idx} className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50/80 border border-slate-200/60">
-                  <span className="text-[16px] font-semibold text-slate-700 truncate">{alert.name}</span>
-                  <span className={`shrink-0 px-2 py-0.5 rounded-md font-black text-[14px] ${meta.bg} ${meta.text}`}>
-                    {sevLabel}
-                  </span>
+                <div key={sevLabel} className={`rounded-2xl border border-slate-200/80 border-t-4 ${topBorderColor} p-4 bg-white shadow-sm`}>
+                  <h4 className={`text-[14px] font-black mb-3 ${meta.text}`}>
+                    {sevLabel} ({alertsInSeverity.length})
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {alertsInSeverity.map((alert, idx) => (
+                      <div key={idx} className="bg-slate-50 rounded-xl px-3.5 py-2.5">
+                        <span className="text-[16px] font-semibold text-slate-700">{alert.name}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               );
             })}
