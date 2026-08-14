@@ -60,7 +60,7 @@ export default function LoginPage() {
             </p>
 
             {errorMsg && (
-              <div className="w-full mt-2 p-3 bg-rose-50 border border-rose-200 text-rose-600 rounded-xl text-xs font-bold text-center animate-in fade-in duration-200">
+              <div className="w-full mt-2 p-3 bg-red-50 border border-red-200 text-red-600 rounded-xl text-xs font-bold text-center animate-in fade-in duration-200">
                 {errorMsg}
               </div>
             )}

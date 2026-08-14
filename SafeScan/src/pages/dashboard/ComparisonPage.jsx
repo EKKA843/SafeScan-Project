@@ -32,6 +32,24 @@ export default function ComparisonPage() {
   const [selectedVer1, setSelectedVer1] = useState('');
   const [selectedVer2, setSelectedVer2] = useState('');
 
+  // กดที่การ์ดเวอร์ชันเพื่อเลือก Baseline/Target โดยตรง แทนที่จะต้องเลือกจาก dropdown เท่านั้น
+  const handleSelectVersionCard = (id) => {
+    const idStr = id.toString();
+    if (selectedVer1 === idStr) {
+      setSelectedVer1('');
+    } else if (selectedVer2 === idStr) {
+      setSelectedVer2('');
+    } else if (!selectedVer1) {
+      setSelectedVer1(idStr);
+    } else if (!selectedVer2) {
+      setSelectedVer2(idStr);
+    } else {
+      // เลือกครบ 2 อันแล้ว กดอันใหม่ = แทนที่ Baseline ตัวเดิม แล้วเคลียร์ Target ให้เลือกใหม่
+      setSelectedVer1(idStr);
+      setSelectedVer2('');
+    }
+  };
+
   const [compareData, setCompareData] = useState(null);
   const [loadingCompare, setLoadingCompare] = useState(false);
 
@@ -149,7 +167,7 @@ export default function ComparisonPage() {
       case 'B': return 'bg-blue-600 text-white shadow-blue-600/20';
       case 'C': return 'bg-amber-500 text-white shadow-amber-500/20';
       case 'D': return 'bg-orange-500 text-white shadow-orange-500/20';
-      default: return 'bg-rose-600 text-white shadow-rose-600/20';
+      default: return 'bg-red-600 text-white shadow-red-600/20';
     }
   };
 
@@ -208,7 +226,7 @@ export default function ComparisonPage() {
                 <Clock className="w-3.5 h-3.5 text-blue-600" />
                 ประวัติเวอร์ชันการสแกนทั้งหมดของ ({selectedWebsite})
               </h4>
-              <span className="text-[10px] font-bold text-slate-400">
+              <span className="text-[13px] font-bold text-slate-400">
                 พบทั้งหมด {websiteVersions.length} เวอร์ชัน
               </span>
             </div>
@@ -222,6 +240,7 @@ export default function ComparisonPage() {
                 {websiteVersions.map((v, idx) => (
                   <div
                     key={v.id}
+                    onClick={() => handleSelectVersionCard(v.id)}
                     className={`p-4 rounded-2xl border transition-all cursor-pointer relative space-y-2 ${
                       selectedVer1 === v.id.toString()
                         ? 'bg-blue-50/90 border-blue-400 ring-2 ring-blue-500/20'
@@ -230,6 +249,15 @@ export default function ComparisonPage() {
                         : 'bg-slate-50/80 border-slate-200/80 hover:border-blue-300'
                     }`}
                   >
+                    {(selectedVer1 === v.id.toString() || selectedVer2 === v.id.toString()) && (
+                      <span
+                        className={`absolute -top-2.5 left-3 px-2 py-0.5 rounded-full text-[13px] font-black text-white shadow-sm ${
+                          selectedVer1 === v.id.toString() ? 'bg-blue-600' : 'bg-indigo-600'
+                        }`}
+                      >
+                        {selectedVer1 === v.id.toString() ? 'Baseline' : 'Target'}
+                      </span>
+                    )}
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-black text-blue-900 bg-blue-100/80 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                         <Tag className="w-3 h-3 text-blue-600" />
@@ -250,8 +278,8 @@ export default function ComparisonPage() {
 
                     <div className="flex items-baseline justify-between pt-1">
                       <div>
-                        <p className="text-xl font-black text-slate-900">{v.score} <span className="text-[10px] text-slate-400 font-normal">คะแนน</span></p>
-                        <p className="text-[10px] text-slate-400">{new Date(v.createdAt).toLocaleDateString('th-TH')}</p>
+                        <p className="text-xl font-black text-slate-900">{v.score} <span className="text-[13px] text-slate-400 font-normal">คะแนน</span></p>
+                        <p className="text-[13px] text-slate-400">{new Date(v.createdAt).toLocaleDateString('th-TH')}</p>
                       </div>
                       <span className={`w-7 h-7 rounded-xl text-xs font-black flex items-center justify-center ${getGradeBadgeClass(v.grade)}`}>
                         {v.grade}
@@ -339,11 +367,11 @@ export default function ComparisonPage() {
             compareData.isImproved 
               ? 'bg-gradient-to-r from-emerald-900 via-teal-900 to-slate-900 border border-emerald-500/30' 
               : compareData.scoreDiff < 0
-              ? 'bg-gradient-to-r from-rose-900 via-red-900 to-slate-900 border border-rose-500/30'
+              ? 'bg-gradient-to-r from-red-900 via-red-900 to-slate-900 border border-red-500/30'
               : 'bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 border border-blue-500/30'
           }`}>
             <div className="space-y-2 text-center md:text-left">
-              <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-300 bg-white/10 px-3 py-1 rounded-full border border-white/10">
+              <span className="text-[13px] font-extrabold uppercase tracking-widest text-emerald-300 bg-white/10 px-3 py-1 rounded-full border border-white/10">
                 Version Progress Analytics
               </span>
               <h2 className="text-2xl md:text-3xl font-black text-white">
@@ -360,14 +388,14 @@ export default function ComparisonPage() {
 
             <div className="flex items-center gap-4 bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/10 shrink-0">
               <div className="text-center">
-                <p className="text-[9px] font-bold text-slate-300 uppercase">Baseline</p>
+                <p className="text-[14px] font-bold text-slate-300 uppercase">Baseline</p>
                 <div className={`w-10 h-10 rounded-xl text-xs font-black flex items-center justify-center mt-1 ${getGradeBadgeClass(compareData.item1.summary.grade)}`}>
                   {compareData.item1.summary.grade}
                 </div>
               </div>
               <ArrowRight className="w-5 h-5 text-white/70" />
               <div className="text-center">
-                <p className="text-[9px] font-bold text-slate-300 uppercase">Target</p>
+                <p className="text-[14px] font-bold text-slate-300 uppercase">Target</p>
                 <div className={`w-10 h-10 rounded-xl text-xs font-black flex items-center justify-center mt-1 ${getGradeBadgeClass(compareData.item2.summary.grade)}`}>
                   {compareData.item2.summary.grade}
                 </div>
@@ -391,19 +419,19 @@ export default function ComparisonPage() {
                   {compareData.fixedIssues.map((item, idx) => (
                     <li key={idx} className="bg-emerald-50/80 p-2.5 rounded-xl border border-emerald-200/60 text-xs font-semibold text-emerald-950 flex items-start justify-between">
                       <span>{item.label}</span>
-                      <span className="text-[10px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md shrink-0">FIXED</span>
+                      <span className="text-[13px] font-black text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md shrink-0">FIXED</span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-[11px] text-slate-400 font-medium text-center py-3">ไม่มีรายการช่องโหว่เดิมที่ถูกแก้ไขเพิ่มเติม</p>
+                <p className="text-[16px] text-slate-400 font-medium text-center py-3">ไม่มีรายการช่องโหว่เดิมที่ถูกแก้ไขเพิ่มเติม</p>
               )}
             </div>
 
             {/* Card 2: New Vulnerabilities */}
-            <div className="bg-white/90 backdrop-blur-xl border border-rose-200/80 rounded-3xl p-5 shadow-sm space-y-3">
-              <div className="flex items-center gap-2 pb-2 border-b border-rose-100">
-                <AlertTriangle className="w-5 h-5 text-rose-500" />
+            <div className="bg-white/90 backdrop-blur-xl border border-red-200/80 rounded-3xl p-5 shadow-sm space-y-3">
+              <div className="flex items-center gap-2 pb-2 border-b border-red-100">
+                <AlertTriangle className="w-5 h-5 text-red-500" />
                 <h4 className="text-xs font-extrabold text-slate-900">
                   ช่องโหว่ใหม่ที่ตรวจพบ ({compareData.newIssues.length} รายการ)
                 </h4>
@@ -411,14 +439,14 @@ export default function ComparisonPage() {
               {compareData.newIssues.length > 0 ? (
                 <ul className="space-y-2">
                   {compareData.newIssues.map((item, idx) => (
-                    <li key={idx} className="bg-rose-50/80 p-2.5 rounded-xl border border-rose-200/60 text-xs font-semibold text-rose-950 flex items-start justify-between">
+                    <li key={idx} className="bg-red-50/80 p-2.5 rounded-xl border border-red-200/60 text-xs font-semibold text-red-950 flex items-start justify-between">
                       <span>{item.label}</span>
-                      <span className="text-[10px] font-black text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md shrink-0">NEW</span>
+                      <span className="text-[13px] font-black text-red-700 bg-red-100 px-2 py-0.5 rounded-md shrink-0">NEW</span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-[11px] text-emerald-600 font-bold text-center py-3">🎉 ไม่พบช่องโหว่เกิดขึ้นใหม่ในเวอร์ชันนี้</p>
+                <p className="text-[16px] text-emerald-600 font-bold text-center py-3">🎉 ไม่พบช่องโหว่เกิดขึ้นใหม่ในเวอร์ชันนี้</p>
               )}
             </div>
 
@@ -435,12 +463,12 @@ export default function ComparisonPage() {
                   {compareData.unresolvedIssues.map((item, idx) => (
                     <li key={idx} className="bg-amber-50/80 p-2.5 rounded-xl border border-amber-200/60 text-xs font-semibold text-amber-950 flex items-start justify-between">
                       <span>{item.label}</span>
-                      <span className="text-[10px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md shrink-0">PENDING</span>
+                      <span className="text-[13px] font-black text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md shrink-0">PENDING</span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <p className="text-[11px] text-emerald-600 font-bold text-center py-3">ไม่มีรายการช่องโหว่ค้างชำระ</p>
+                <p className="text-[16px] text-emerald-600 font-bold text-center py-3">ไม่มีรายการช่องโหว่ค้างชำระ</p>
               )}
             </div>
 

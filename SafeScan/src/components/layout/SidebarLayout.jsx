@@ -57,7 +57,7 @@ export default function SidebarLayout() {
                 <span className="text-xl font-black tracking-tight text-slate-900">
                   Safe<span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">Scan</span>
                 </span>
-                <span className="text-[10px] font-bold text-slate-400">ระบบรักษาความปลอดภัยอัจฉริยะ</span>
+                <span className="text-[13px] font-bold text-slate-400">ระบบรักษาความปลอดภัยอัจฉริยะ</span>
               </div>
             </div>
           </div>
@@ -108,7 +108,7 @@ export default function SidebarLayout() {
 
         {/* Sidebar Footer */}
         <div className="p-4 border-t border-slate-100">
-          <p className="text-[11px] font-bold text-slate-400 text-center tracking-wide">
+          <p className="text-[16px] font-bold text-slate-400 text-center tracking-wide">
             SafeScan Security © 2026
           </p>
         </div>
@@ -143,7 +143,7 @@ export default function SidebarLayout() {
                   <span className="text-xs font-extrabold text-slate-800 group-hover:text-blue-600 transition-colors">
                     {user.fullName}
                   </span>
-                  <span className="text-[10px] text-slate-400 font-medium">ผู้ใช้งานทั่วไป</span>
+                  <span className="text-[13px] text-slate-400 font-medium">ผู้ใช้งานทั่วไป</span>
                 </div>
                 <ChevronDown className={`w-4 h-4 text-slate-400 group-hover:text-blue-600 transition-transform ${dropdownOpen ? 'rotate-180 text-blue-600' : ''}`} />
               </div>
@@ -151,7 +151,7 @@ export default function SidebarLayout() {
               {dropdownOpen && (
                 <div className="absolute right-0 mt-2 w-52 bg-white border border-slate-200/80 rounded-2xl shadow-xl py-2 z-50 font-medium animate-in fade-in slide-in-from-top-2 duration-200">
                   <div className="px-4 py-2 border-b border-slate-100">
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">บัญชีผู้ใช้</p>
+                    <p className="text-[16px] font-bold text-slate-400 uppercase tracking-wider">บัญชีผู้ใช้</p>
                     <p className="text-xs font-bold text-slate-800 truncate">{user.fullName}</p>
                   </div>
                   <button
@@ -163,7 +163,7 @@ export default function SidebarLayout() {
                   <div className="h-px bg-slate-100 my-1" />
                   <button 
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-rose-600 hover:bg-rose-50 text-xs font-bold text-left transition-all cursor-pointer"
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-red-600 hover:bg-red-50 text-xs font-bold text-left transition-all cursor-pointer"
                   >
                     <LogOut className="w-4 h-4" /> ออกจากระบบ
                   </button>

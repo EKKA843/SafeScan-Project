@@ -49,7 +49,7 @@ export default function HeroSection() {
               </div>
               <div>
                 <p className="text-xs font-extrabold text-slate-900">สแกนรวดเร็ว</p>
-                <p className="text-[11px] font-medium text-slate-500">ผลลัพธ์แบบเรียลไทม์</p>
+                <p className="text-[16px] font-medium text-slate-500">ผลลัพธ์แบบเรียลไทม์</p>
               </div>
             </div>
 
@@ -59,7 +59,7 @@ export default function HeroSection() {
               </div>
               <div>
                 <p className="text-xs font-extrabold text-slate-900">ปลอดภัย 100%</p>
-                <p className="text-[11px] font-medium text-slate-500">ไม่เก็บรหัสผ่าน</p>
+                <p className="text-[16px] font-medium text-slate-500">ไม่เก็บรหัสผ่าน</p>
               </div>
             </div>
 
@@ -69,7 +69,7 @@ export default function HeroSection() {
               </div>
               <div>
                 <p className="text-xs font-extrabold text-slate-900">รายงานแม่นยำ</p>
-                <p className="text-[11px] font-medium text-slate-500">วิเคราะห์เชิงลึก</p>
+                <p className="text-[16px] font-medium text-slate-500">วิเคราะห์เชิงลึก</p>
               </div>
             </div>
           </div>

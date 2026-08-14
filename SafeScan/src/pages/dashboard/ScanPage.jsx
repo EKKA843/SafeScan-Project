@@ -236,7 +236,7 @@ export default function ScanPage() {
                 <Loader2 className="w-5 h-5 animate-spin" />
               </div>
               <div>
-                <p className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">กำลังดำเนินการสแกนสด</p>
+                <p className="text-[13px] font-bold text-blue-300 uppercase tracking-wider">กำลังดำเนินการสแกนสด</p>
                 <h3 className="text-sm font-extrabold text-white truncate max-w-xs md:max-w-md">
                   {scanSteps[currentStep].title}
                 </h3>
@@ -296,23 +296,23 @@ export default function ScanPage() {
                         <p className={`text-xs font-bold ${isCurrent ? 'text-blue-950 font-black' : 'text-slate-800'}`}>
                           {step.title}
                         </p>
-                        <span className="text-[10px] font-extrabold text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded-full shrink-0">
+                        <span className="text-[13px] font-extrabold text-blue-700 bg-blue-100 px-2.5 py-0.5 rounded-full shrink-0">
                           {step.owasp}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 mt-0.5 font-medium">{step.desc}</p>
+                      <p className="text-[16px] text-slate-500 mt-0.5 font-medium">{step.desc}</p>
                     </div>
                   </div>
 
                   {/* Sub-tasks breakdown when active */}
                   {isCurrent && (
                     <div className="mt-3 ml-8 pt-3 border-t border-blue-200/60 space-y-1.5 animate-in fade-in duration-200">
-                      <p className="text-[10px] font-extrabold text-blue-900 uppercase tracking-wider flex items-center gap-1">
+                      <p className="text-[13px] font-extrabold text-blue-900 uppercase tracking-wider flex items-center gap-1">
                         <Terminal className="w-3.5 h-3.5 text-blue-600" /> รายการที่กำลังวิเคราะห์เชิงลึก:
                       </p>
                       <ul className="space-y-1 pl-1">
                         {step.subtasks.map((sub, sIdx) => (
-                          <li key={sIdx} className="text-[11px] text-blue-900 flex items-center gap-2 font-medium">
+                          <li key={sIdx} className="text-[16px] text-blue-900 flex items-center gap-2 font-medium">
                             <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse shrink-0" />
                             <span>{sub}</span>
                           </li>
@@ -337,25 +337,25 @@ export default function ScanPage() {
           <div className="bg-white/90 backdrop-blur-md border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 hover:border-purple-300 transition-all">
             <Server className="w-5 h-5 text-purple-600 mb-1" />
             <h4 className="text-xs font-extrabold text-slate-900">1. Nmap Engine</h4>
-            <p className="text-[10px] text-slate-500 font-medium">Network Layer: พอร์ต & บริการเครือข่าย</p>
+            <p className="text-[13px] text-slate-500 font-medium">Network Layer: พอร์ต & บริการเครือข่าย</p>
           </div>
 
           <div className="bg-white/90 backdrop-blur-md border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 hover:border-blue-300 transition-all">
             <ShieldCheck className="w-5 h-5 text-blue-600 mb-1" />
             <h4 className="text-xs font-extrabold text-slate-900">2. SSLyze Engine</h4>
-            <p className="text-[10px] text-slate-500 font-medium">Transport Layer: SSL/TLS & Ciphers</p>
+            <p className="text-[13px] text-slate-500 font-medium">Transport Layer: SSL/TLS & Ciphers</p>
           </div>
 
           <div className="bg-white/90 backdrop-blur-md border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 hover:border-cyan-300 transition-all">
             <Globe className="w-5 h-5 text-cyan-600 mb-1" />
             <h4 className="text-xs font-extrabold text-slate-900">3. Nikto Scanner</h4>
-            <p className="text-[10px] text-slate-500 font-medium">Web Server Layer: เซิร์ฟเวอร์ & ไฟล์สำคัญ</p>
+            <p className="text-[13px] text-slate-500 font-medium">Web Server Layer: เซิร์ฟเวอร์ & ไฟล์สำคัญ</p>
           </div>
 
           <div className="bg-white/90 backdrop-blur-md border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 hover:border-amber-300 transition-all">
             <Bug className="w-5 h-5 text-amber-500 mb-1" />
             <h4 className="text-xs font-extrabold text-slate-900">4. OWASP ZAP</h4>
-            <p className="text-[10px] text-slate-500 font-medium">App Layer: DAST & Business Logic</p>
+            <p className="text-[13px] text-slate-500 font-medium">App Layer: DAST & Business Logic</p>
           </div>
 
         </div>

@@ -46,7 +46,7 @@ export default function AboutPage() {
                   </div>
                   <div>
                     <h4 className="font-extrabold text-slate-900 text-sm">{tech.name}</h4>
-                    <span className="text-[10px] font-bold text-blue-600 block mb-1.5 uppercase">{tech.role}</span>
+                    <span className="text-[13px] font-bold text-blue-600 block mb-1.5 uppercase">{tech.role}</span>
                     <p className="text-slate-400 text-xs font-medium leading-relaxed">{tech.desc}</p>
                   </div>
                 </div>

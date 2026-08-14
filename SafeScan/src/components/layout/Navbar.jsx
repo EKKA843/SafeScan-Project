@@ -52,7 +52,7 @@ export default function Navbar() {
             <span className="text-2xl font-black tracking-tight text-slate-900 leading-none">
               Safe<span className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-600 bg-clip-text text-transparent">Scan</span>
             </span>
-            <span className="text-[10px] font-bold text-blue-600 tracking-wider uppercase mt-0.5">
+            <span className="text-[13px] font-bold text-blue-600 tracking-wider uppercase mt-0.5">
               Cyber Security
             </span>
           </div>
@@ -91,7 +91,7 @@ export default function Navbar() {
               {menuOpen && (
                 <div className="absolute right-0 mt-2 w-52 bg-white border border-slate-200/80 rounded-2xl shadow-xl py-2 z-50 font-medium animate-in fade-in slide-in-from-top-2 duration-200">
                   <div className="px-4 py-2 border-b border-slate-100">
-                    <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">บัญชีใช้งาน</p>
+                    <p className="text-[16px] font-bold text-slate-400 uppercase tracking-wider">บัญชีใช้งาน</p>
                     <p className="text-xs font-bold text-slate-800 truncate">{currentUser.fullName}</p>
                   </div>
 
@@ -115,7 +115,7 @@ export default function Navbar() {
                   
                   <button 
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-rose-600 hover:bg-rose-50 text-xs font-bold text-left transition-all cursor-pointer"
+                    className="w-full flex items-center gap-2.5 px-4 py-2.5 text-red-600 hover:bg-red-50 text-xs font-bold text-left transition-all cursor-pointer"
                   >
                     <LogOut className="w-4 h-4" /> ออกจากระบบ
                   </button>

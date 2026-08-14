@@ -92,7 +92,7 @@ export default function ScanBar() {
           <Loader2 className="w-5 h-5 text-blue-600 animate-spin shrink-0" />
           <div className="space-y-0.5">
             <p className="font-extrabold text-blue-950">กำลังสแกนความปลอดภัยเชิงลึกผ่าน CLI...</p>
-            <p className="text-[11px] font-medium text-blue-700">กระบวนการนี้ใช้เวลาประมาณ 30-60 วินาที ระบบกำลังรวบรวมข้อมูล</p>
+            <p className="text-[16px] font-medium text-blue-700">กระบวนการนี้ใช้เวลาประมาณ 30-60 วินาที ระบบกำลังรวบรวมข้อมูล</p>
           </div>
         </div>
       )}
@@ -102,7 +102,7 @@ export default function ScanBar() {
         <div className={`w-full border rounded-2xl p-5 flex flex-col gap-4 shadow-lg backdrop-blur-md transition-all animate-in fade-in slide-in-from-bottom-2 ${
           isSafe 
             ? 'bg-emerald-50/70 border-emerald-200/80 text-emerald-950 shadow-emerald-500/5' 
-            : 'bg-rose-50/70 border-rose-200/80 text-rose-950 shadow-rose-500/5'
+            : 'bg-red-50/70 border-red-200/80 text-red-950 shadow-red-500/5'
         }`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5 font-black text-base">
@@ -111,20 +111,20 @@ export default function ScanBar() {
                   <ShieldCheck className="w-6 h-6" />
                 </div>
               ) : (
-                <div className="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600">
+                <div className="w-9 h-9 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
                   <ShieldAlert className="w-6 h-6" />
                 </div>
               )}
               <div>
                 <h4 className="text-sm font-bold text-slate-700">ผลการตรวจสอบโดเมน</h4>
-                <p className={`text-base font-extrabold ${isSafe ? 'text-emerald-700' : 'text-rose-700'}`}>
+                <p className={`text-base font-extrabold ${isSafe ? 'text-emerald-700' : 'text-red-700'}`}>
                   {isSafe ? 'ปลอดภัย (Passed Security Checks)' : 'พบความเสี่ยง (Warning Detected)'}
                 </p>
               </div>
             </div>
 
             <span className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
-              isSafe ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'
+              isSafe ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
             }`}>
               {scanResult.data?.summary?.grade ? `Grade ${scanResult.data.summary.grade}` : (isSafe ? 'Safe' : 'Risk')}
             </span>
@@ -145,7 +145,7 @@ export default function ScanBar() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px] text-slate-500 font-medium pt-1">
+          <div className="flex items-center gap-2 text-[16px] text-slate-500 font-medium pt-1">
             <Info className="w-4 h-4 text-blue-500 shrink-0" />
             <span>เข้าสู่ระบบเพื่อเข้าถึงแดชบอร์ด ดู Log แบบสมบูรณ์ และบันทึกประวัติการสแกน</span>
           </div>

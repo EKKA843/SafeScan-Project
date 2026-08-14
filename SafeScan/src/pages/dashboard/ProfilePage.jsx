@@ -88,14 +88,14 @@ export default function ProfilePage() {
           </p>
 
           <div className="mt-6 pt-6 border-t border-slate-50">
-            <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full">
+            <span className="inline-flex items-center gap-1 text-[16px] font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-full">
               <ShieldCheck className="w-4 h-4" /> สิทธิ์ผู้ใช้งานทั่วไป
             </span>
           </div>
 
           <button 
             onClick={handleLogout}
-            className="w-full mt-8 py-3.5 border border-rose-100 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
+            className="w-full mt-8 py-3.5 border border-red-100 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 font-bold rounded-xl text-xs transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
           >
             <LogOut className="w-4 h-4" /> ออกจากระบบอย่างปลอดภัย
           </button>

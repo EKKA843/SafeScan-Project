@@ -83,7 +83,7 @@ export default function ScanHistoryPage() {
       case 'B': return 'bg-blue-600 text-white shadow-blue-600/20';
       case 'C': return 'bg-amber-500 text-white shadow-amber-500/20';
       case 'D': return 'bg-orange-500 text-white shadow-orange-500/20';
-      default: return 'bg-rose-600 text-white shadow-rose-600/20';
+      default: return 'bg-red-600 text-white shadow-red-600/20';
     }
   };
 
@@ -104,7 +104,7 @@ export default function ScanHistoryPage() {
         <div className="absolute -right-10 -bottom-10 w-64 h-64 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="space-y-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-extrabold bg-blue-500/20 text-blue-400 border border-blue-500/30">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[16px] font-extrabold bg-blue-500/20 text-blue-400 border border-blue-500/30">
               <History className="w-3.5 h-3.5" /> Security Audit Records
             </span>
             <h1 className="text-3xl font-black tracking-tight text-white flex items-center gap-3">
@@ -121,7 +121,7 @@ export default function ScanHistoryPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white border border-slate-100 p-5 rounded-2xl shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">การสแกนทั้งหมด</span>
+            <span className="text-[13px] font-black text-slate-400 uppercase tracking-wider">การสแกนทั้งหมด</span>
             <h3 className="text-2xl font-black text-slate-900 mt-1">{totalScans} <span className="text-xs text-slate-400 font-normal">รายการ</span></h3>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold">
@@ -131,7 +131,7 @@ export default function ScanHistoryPage() {
 
         <div className="bg-white border border-slate-100 p-5 rounded-2xl shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-black text-emerald-600 uppercase tracking-wider">ผ่านเกณฑ์ความปลอดภัย</span>
+            <span className="text-[13px] font-black text-emerald-600 uppercase tracking-wider">ผ่านเกณฑ์ความปลอดภัย</span>
             <h3 className="text-2xl font-black text-emerald-600 mt-1">{safeScans} <span className="text-xs text-slate-400 font-normal">โดเมน</span></h3>
           </div>
           <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
@@ -141,10 +141,10 @@ export default function ScanHistoryPage() {
 
         <div className="bg-white border border-slate-100 p-5 rounded-2xl shadow-sm flex items-center justify-between">
           <div>
-            <span className="text-[10px] font-black text-rose-600 uppercase tracking-wider">พบจุดเสี่ยงอันตราย</span>
-            <h3 className="text-2xl font-black text-rose-600 mt-1">{riskyScans} <span className="text-xs text-slate-400 font-normal">โดเมน</span></h3>
+            <span className="text-[13px] font-black text-red-600 uppercase tracking-wider">พบจุดเสี่ยงอันตราย</span>
+            <h3 className="text-2xl font-black text-red-600 mt-1">{riskyScans} <span className="text-xs text-slate-400 font-normal">โดเมน</span></h3>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center font-bold">
+          <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center font-bold">
             <ShieldAlert className="w-6 h-6" />
           </div>
         </div>
@@ -200,8 +200,8 @@ export default function ScanHistoryPage() {
             onClick={() => setCategoryFilter('risky')}
             className={`px-4 py-2 rounded-xl transition-all flex items-center gap-1.5 ${
               categoryFilter === 'risky' 
-                ? 'bg-rose-600 text-white shadow-md shadow-rose-600/20' 
-                : 'bg-rose-50 text-rose-700 hover:bg-rose-100'
+                ? 'bg-red-600 text-white shadow-md shadow-red-600/20' 
+                : 'bg-red-50 text-red-700 hover:bg-red-100'
             }`}
           >
             <AlertTriangle className="w-3.5 h-3.5" /> สแกนพบจุดเสี่ยง ({riskyScans})
@@ -261,12 +261,12 @@ export default function ScanHistoryPage() {
                       {/* ID & Target URL */}
                       <td className="p-4">
                         <div className="flex items-center gap-3">
-                          <span className="font-mono text-[10px] text-slate-400 bg-slate-100 px-2 py-1 rounded-md shrink-0">
+                          <span className="font-mono text-[13px] text-slate-400 bg-slate-100 px-2 py-1 rounded-md shrink-0">
                             #{item.id}
                           </span>
                           <div className="space-y-0.5">
                             <p className="font-extrabold text-slate-900 text-xs break-all">{item.targetUrl}</p>
-                            <span className="text-[10px] text-slate-400 font-medium block">Status: {item.status}</span>
+                            <span className="text-[13px] text-slate-400 font-medium block">Status: {item.status}</span>
                           </div>
                         </div>
                       </td>
@@ -277,7 +277,7 @@ export default function ScanHistoryPage() {
                           <span className="font-black text-slate-800 text-sm">{score} / 100</span>
                           <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                             <div 
-                              className={`h-full rounded-full ${score >= 70 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-rose-500'}`}
+                              className={`h-full rounded-full ${score >= 70 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
                               style={{ width: `${score}%` }}
                             />
                           </div>
@@ -304,14 +304,14 @@ export default function ScanHistoryPage() {
                         <div className="flex items-center justify-center gap-2">
                           <button
                             onClick={() => navigate(`/scan-result/${item.id}`)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl font-bold transition-all text-[11px]"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl font-bold transition-all text-[16px]"
                           >
                             รายงาน <ExternalLink className="w-3 h-3" />
                           </button>
                           
                           <button
                             onClick={() => navigate('/comparison')}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl font-bold transition-all text-[11px]"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl font-bold transition-all text-[16px]"
                           >
                             เทียบ <ArrowRightLeft className="w-3 h-3" />
                           </button>

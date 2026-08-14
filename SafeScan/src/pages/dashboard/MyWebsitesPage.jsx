@@ -110,7 +110,7 @@ export default function MyWebsitesPage() {
   const getGradeBadge = (grade) => {
     if (grade === 'N/A') return 'bg-slate-100 text-slate-500';
     if (grade === 'A' || grade === 'B') return 'bg-emerald-100 text-emerald-800 font-extrabold';
-    return 'bg-rose-100 text-rose-800 font-extrabold';
+    return 'bg-red-100 text-red-800 font-extrabold';
   };
 
   return (
@@ -192,14 +192,14 @@ export default function MyWebsitesPage() {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <h4 className="font-extrabold text-slate-900 text-base">{item.name}</h4>
-                      <span className={`px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${getGradeBadge(item.grade)}`}>
+                      <span className={`px-2 py-0.5 rounded text-[13px] font-extrabold uppercase ${getGradeBadge(item.grade)}`}>
                         เกรด {item.grade}
                       </span>
                     </div>
                     <p className="text-slate-400 text-xs font-semibold select-all break-all">{item.url}</p>
                     
                     {/* ข้อมูลสถิติล่าสุด */}
-                    <div className="text-[11px] text-slate-400 font-medium pt-1.5 flex flex-wrap gap-x-4 gap-y-1">
+                    <div className="text-[16px] text-slate-400 font-medium pt-1.5 flex flex-wrap gap-x-4 gap-y-1">
                       <span>คะแนนล่าสุด: <strong className="text-slate-700">{item.score !== null ? `${item.score}/100` : 'ไม่มีผลสแกน'}</strong></span>
                       <span>บันทึกเมื่อ: <span className="text-slate-500">{new Date(item.createdAt).toLocaleDateString('th-TH')}</span></span>
                     </div>
@@ -233,7 +233,7 @@ export default function MyWebsitesPage() {
 
                     <button 
                       onClick={() => handleDeleteWebsite(item.id)}
-                      className="p-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 rounded-xl transition-all border border-rose-100 cursor-pointer"
+                      className="p-2.5 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 rounded-xl transition-all border border-red-100 cursor-pointer"
                       title="ลบออกเฝ้าระวัง"
                     >
                       <Trash2 className="w-4 h-4" />
