@@ -105,7 +105,10 @@ export default function ScanPage() {
 
         const checkStatusLoop = async () => {
           try {
-            const statusRes = await axios.get(`http://localhost:5000/api/scan/status/${scanId}`);
+            // 🔒 endpoint นี้ตอนนี้ต้องผ่าน localProtect + ตรวจความเป็นเจ้าของแล้ว (แก้ปัญหา IDOR) ต้องแนบ Token ไปด้วย
+            const statusRes = await axios.get(`http://localhost:5000/api/scan/status/${scanId}`, {
+              headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            });
 
             if (statusRes.data.status === 'completed') {
               setCurrentStep(5);

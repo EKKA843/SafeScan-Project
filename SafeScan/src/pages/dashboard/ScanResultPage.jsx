@@ -170,7 +170,10 @@ const ScanResultPage = () => {
   const fetchScanStatus = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`http://localhost:5000/api/scan/status/${scanId}`);
+      // 🔒 endpoint นี้ตอนนี้ต้องผ่าน localProtect + ตรวจความเป็นเจ้าของแล้ว (แก้ปัญหา IDOR) ต้องแนบ Token ไปด้วย
+      const response = await axios.get(`http://localhost:5000/api/scan/status/${scanId}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
 
       if (response.data.success) {
         setScanResult(response.data);
@@ -285,12 +288,22 @@ const ScanResultPage = () => {
             <span className="text-[13px] font-bold text-slate-300 uppercase tracking-widest mb-1">
               Overall Security Grade
             </span>
-            <div className={`w-20 h-20 rounded-2xl ${getGradeBadgeClass(summary.grade)} text-white font-black text-4xl flex items-center justify-center shadow-lg mb-2`}>
-              {summary.grade || 'N/A'}
+            <div className={`w-20 h-20 rounded-2xl ${summary.dataInsufficient ? 'bg-slate-500 shadow-slate-500/20' : getGradeBadgeClass(summary.grade)} text-white font-black text-4xl flex items-center justify-center shadow-lg mb-2`}>
+              {summary.dataInsufficient ? 'N/A' : (summary.grade || 'N/A')}
             </div>
             <p className="text-xl font-black text-white">
-              {summary.finalScore ?? 0} <span className="text-xs text-slate-400 font-normal">/ 100 Points</span>
+              {summary.dataInsufficient ? 'N/A' : (summary.finalScore ?? 0)} <span className="text-xs text-slate-400 font-normal">/ 100 Points</span>
             </p>
+            {summary.dataInsufficient && (
+              <p className="text-[13px] font-bold text-amber-300 bg-amber-500/20 border border-amber-400/30 rounded-lg px-2.5 py-1.5 mt-2">
+                ⚠️ ไม่สามารถประเมินคะแนนได้ เนื่องจากเครื่องมือสแกนทั้งหมดล้มเหลว
+              </p>
+            )}
+            {!summary.dataInsufficient && summary.engineTotalCount != null && summary.engineSuccessCount < summary.engineTotalCount && (
+              <p className="text-[13px] font-bold text-amber-300 bg-amber-500/20 border border-amber-400/30 rounded-lg px-2.5 py-1.5 mt-2">
+                ⚠️ ประเมินจากเครื่องมือที่สำเร็จ {summary.engineSuccessCount}/{summary.engineTotalCount} ตัว (ข้อมูลไม่ครบทุกเอนจิน)
+              </p>
+            )}
             {summary.totalRiskPoints !== undefined && (
               <div className="mt-2 text-[13px] font-medium text-slate-300 space-y-1.5 border-t border-white/10 pt-2 w-full text-center">
                 <p>Total Risk Points: <strong className="text-red-400 text-[13px]">{summary.totalRiskPoints}</strong></p>

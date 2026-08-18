@@ -21,9 +21,10 @@ exports.registerUser = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     // 4. บันทึกข้อมูลลงฐานข้อมูล MySQL จริง
+    // company เป็นฟิลด์ไม่บังคับ — ถ้าไม่ส่งมาต้องแปลงเป็น null เพราะ mysql2 ไม่ยอมรับ undefined เป็นค่าพารามิเตอร์
     await db.execute(
       'INSERT INTO users (full_name, company, email, password) VALUES (?, ?, ?, ?)',
-      [fullName, company, email, hashedPassword]
+      [fullName, company ?? null, email, hashedPassword]
     );
 
     res.status(201).json({ success: true, message: 'ลงทะเบียนองค์กรสำเร็จแล้ว!' });

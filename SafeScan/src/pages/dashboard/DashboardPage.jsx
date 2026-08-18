@@ -505,6 +505,9 @@ export default function DashboardPage() {
                         {item.createdAt
                           ? new Date(item.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
                           : '—'}
+                        {item.engineTotalCount != null && item.engineSuccessCount < item.engineTotalCount && (
+                          <span className="ml-1.5 text-amber-600 font-bold">· สำเร็จ {item.engineSuccessCount}/{item.engineTotalCount}</span>
+                        )}
                       </p>
                     </div>
                     <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />

@@ -6,6 +6,7 @@ import LoginPage from './pages/auth/LoginPage';
 import RegisterPage from './pages/auth/RegisterPage';
 import ScanPage from './pages/dashboard/ScanPage';
 import SidebarLayout from './components/layout/SidebarLayout';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 import DashboardPage from './pages/dashboard/DashboardPage';
 import ComparisonPage from './pages/dashboard/ComparisonPage';
 import MyWebsitesPage from './pages/dashboard/MyWebsitesPage';
@@ -31,20 +32,22 @@ export default function App() {
         <Route path="/how-to-use" element={<HowToUsePage />} />
         <Route path="/about" element={<AboutPage />} />
         
-        {/* หน้าภายในระบบ Dashboard (ต้องการล็อกขอบเมนู Sidebar ซ้ายมือ) */}
-        <Route element={<SidebarLayout />}>
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/scan" element={<ScanPage />} />
-          <Route path="/history" element={<HistoryPage />} />
-          <Route path="/compare" element={<ComparisonPage />} />
-          <Route path="/my-websites" element={<MyWebsitesPage />} />
-          <Route path="/security-policy" element={<SecurityPolicyPage />} />
-          <Route path="/profile" element={<ProfilePage />} /> 
-          <Route path="/scan-result/:scanId" element={<ScanResultPage />} />
-          
-          {/* 🎯 4. หยอดบรรทัดนี้ลงไปท้ายสุดในกลุ่ม Sidebar Layout */}
-          {/* เพื่อดักจับบั๊กความจำสั้น ใครยิงมาพาร์ท /policy จะถูกส่งไป /security-policy ทันที! */}
-          <Route path="/policy" element={<Navigate to="/security-policy" replace />} />
+        {/* หน้าภายในระบบ Dashboard (ต้องล็อกอินก่อนถึงจะเข้าได้ + ล็อกขอบเมนู Sidebar ซ้ายมือ) */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<SidebarLayout />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/scan" element={<ScanPage />} />
+            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/compare" element={<ComparisonPage />} />
+            <Route path="/my-websites" element={<MyWebsitesPage />} />
+            <Route path="/security-policy" element={<SecurityPolicyPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/scan-result/:scanId" element={<ScanResultPage />} />
+
+            {/* 🎯 4. หยอดบรรทัดนี้ลงไปท้ายสุดในกลุ่ม Sidebar Layout */}
+            {/* เพื่อดักจับบั๊กความจำสั้น ใครยิงมาพาร์ท /policy จะถูกส่งไป /security-policy ทันที! */}
+            <Route path="/policy" element={<Navigate to="/security-policy" replace />} />
+          </Route>
         </Route>
       </Routes>
     </Router>

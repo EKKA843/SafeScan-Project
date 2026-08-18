@@ -274,13 +274,20 @@ export default function ScanHistoryPage() {
                       {/* Score & Progress */}
                       <td className="p-4 text-center">
                         <div className="inline-flex flex-col items-center gap-1 min-w-[100px]">
-                          <span className="font-black text-slate-800 text-sm">{score} / 100</span>
+                          <span className="font-black text-slate-800 text-sm">
+                            {item.dataInsufficient ? 'N/A' : `${score} / 100`}
+                          </span>
                           <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                            <div 
+                            <div
                               className={`h-full rounded-full ${score >= 70 ? 'bg-emerald-500' : score >= 50 ? 'bg-amber-500' : 'bg-red-500'}`}
-                              style={{ width: `${score}%` }}
+                              style={{ width: `${item.dataInsufficient ? 0 : score}%` }}
                             />
                           </div>
+                          {item.engineTotalCount != null && item.engineSuccessCount < item.engineTotalCount && (
+                            <span className="text-[13px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full">
+                              สำเร็จ {item.engineSuccessCount}/{item.engineTotalCount}
+                            </span>
+                          )}
                         </div>
                       </td>
 

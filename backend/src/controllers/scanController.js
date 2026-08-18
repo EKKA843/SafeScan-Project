@@ -655,6 +655,41 @@ exports.startScan = async (req, res) => {
       return;
     }
 
+    // 🛡️ ความน่าเชื่อถือของคะแนน: ถ้าไม่มีเอนจินไหนสำเร็จเลยแม้แต่ตัวเดียว ห้ามให้คะแนน/เกรดเด็ดขาด
+    // (แก้ตามผลทดสอบ Security — เดิมกรณีนี้จะได้ Final Score 100 เกรด B "ดี" เพราะไม่มี finding ให้หัก
+    //  ทั้งที่จริงคือ "ไม่มีข้อมูลตรวจสอบเลย" ไม่ใช่ "ตรวจแล้วไม่พบช่องโหว่")
+    const engineSuccessFlags = [!collected.isNmapError, !collected.isSSLyzeError, niktoRes.success, zapRes.success];
+    const engineSuccessCount = engineSuccessFlags.filter(Boolean).length;
+
+    if (engineSuccessCount === 0) {
+      console.log(`[Scan #${scanId}] ⚠️ ทุกเอนจินล้มเหลว — ไม่สามารถประเมินคะแนนได้ ไม่บันทึกเป็น completed`);
+      const owaspMapping = {
+        summary: {
+          finalScore: null, grade: null, riskLevel: 'ไม่สามารถประเมินได้ (เอนจินสแกนล้มเหลวทั้งหมด)',
+          dataInsufficient: true, engineSuccessCount: 0, engineTotalCount: 4
+        },
+        deductionBreakdown: [],
+        bonusBreakdown: [],
+        details: {
+          open_ports_detected: collected.totalOpenPorts,
+          risky_ports: collected.riskyPortsFound,
+          is_nmap_success: !collected.isNmapError,
+          is_sslyze_success: !collected.isSSLyzeError,
+          is_nikto_success: niktoRes.success,
+          nikto_raw: niktoRes.rawOutput || 'No raw output from Nikto',
+          is_zap_success: zapRes.success,
+          zap_skip_reason: zapRes.success ? null : (zapRes.skipReason || 'waf_or_ssl'),
+          missing_security_headers: headerResult.missingHeaders
+        }
+      };
+      await db.execute(
+        `UPDATE scan_results SET status = 'failed', nmap_raw_output = ?, sslyze_raw_output = ?, zap_raw_output = ?, owasp_mapping = ? WHERE id = ?`,
+        [nmapOutput, sslyzeOutput, zapRes.rawOutput || 'No raw output from ZAP', JSON.stringify(owaspMapping), scanId]
+      );
+      activeScanProgress.delete(scanId);
+      return;
+    }
+
     const evalResult = evaluateOwaspScores(collected.findings, {
       isSslValid: collected.isSslValid,
       missingHeadersCount: headerResult.missingHeaders.length,
@@ -682,7 +717,9 @@ exports.startScan = async (req, res) => {
         rawScore: evalResult.rawScore,
         severityCeiling: evalResult.severityCeiling,
         bonusPoints: evalResult.bonusPoints,
-        isAutoFail: evalResult.isAutoFail
+        isAutoFail: evalResult.isAutoFail,
+        // 🛡️ ระบุจำนวนเอนจินที่สแกนสำเร็จจริง เพื่อความโปร่งใสเวลาสแกนสำเร็จแค่บางส่วน (Partial Coverage)
+        engineSuccessCount, engineTotalCount: 4
       },
       vulnerabilities: vulnCounts,
       // 🔎 รายละเอียดการหักคะแนนทุกจุด: มาจากเครื่องมือไหน หมวดอะไร หักกี่แต้ม และถูกนับหรือไม่
@@ -747,6 +784,16 @@ exports.publicScan = async (req, res) => {
       });
     }
 
+    // 🛡️ ความน่าเชื่อถือของคะแนน: public scan ไม่รัน ZAP โดยตั้งใจ จึงเช็คจาก 3 เอนจินที่รันจริง
+    const publicEngineSuccessCount = [!collected.isNmapError, !collected.isSSLyzeError, niktoRes.success, headerResult.success].filter(Boolean).length;
+    if (publicEngineSuccessCount === 0) {
+      return res.json({
+        success: false,
+        status: 'failed',
+        message: 'ไม่สามารถประเมินคะแนนได้ เนื่องจากเครื่องมือตรวจสอบทั้งหมดล้มเหลว ไม่ใช่ว่าเว็บไซต์ปลอดภัย'
+      });
+    }
+
     const evalResult = evaluateOwaspScores(collected.findings, {
       isSslValid: collected.isSslValid,
       missingHeadersCount: headerResult.missingHeaders.length,
@@ -782,8 +829,16 @@ exports.publicScan = async (req, res) => {
 exports.getScanStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const [rows] = await db.execute('SELECT status, target_url, owasp_mapping, nmap_raw_output, sslyze_raw_output, zap_raw_output FROM scan_results WHERE id = ?', [id]);
+
+    // 🔒 ต้องเป็นเจ้าของสแกนนี้เท่านั้น — เดิม endpoint นี้ไม่ผูก localProtect เลย ทำให้ใครก็ได้
+    // เดา Scan ID แล้วอ่านผล/Raw Output ของคนอื่นได้ (Unauthenticated Access + IDOR)
+    const activeUser = req.user || req.userData || req.user_info || req.auth;
+    const userId = activeUser ? (activeUser.id || activeUser.userId || activeUser._id || activeUser.memberId) : null;
+    if (!userId) return res.status(401).json({ message: 'กรุณาเข้าสู่ระบบก่อน' });
+
+    const [rows] = await db.execute('SELECT status, target_url, owasp_mapping, nmap_raw_output, sslyze_raw_output, zap_raw_output, user_id FROM scan_results WHERE id = ?', [id]);
     if (rows.length === 0) return res.status(404).json({ message: 'ไม่พบข้อมูล' });
+    if (rows[0].user_id !== userId) return res.status(403).json({ message: 'ไม่มีสิทธิ์เข้าถึงข้อมูลนี้' });
 
     const numericId = Number(id);
     const progress = activeScanProgress.get(numericId) || activeScanProgress.get(id) || null;
@@ -838,7 +893,11 @@ exports.getScanHistory = async (req, res) => {
         versionName,
         grade: parsedMapping?.summary?.grade || 'N/A',
         score: parsedMapping?.summary?.finalScore || 0,
-        hasEngineIssue
+        hasEngineIssue,
+        // 🛡️ ความครอบคลุมของข้อมูล (กี่เอนจินจากทั้งหมดที่สแกนสำเร็จจริง) ให้หน้าบ้านโชว์ป้าย "สำเร็จ x/4" ได้
+        engineSuccessCount: parsedMapping?.summary?.engineSuccessCount ?? null,
+        engineTotalCount: parsedMapping?.summary?.engineTotalCount ?? null,
+        dataInsufficient: parsedMapping?.summary?.dataInsufficient || false
       };
     });
     res.json({ success: true, data: historyData });

@@ -9,8 +9,27 @@ const db = require('./config/db');
 
 const app = express();
 
-// เปิดประตูเชื่อมต่อกับหน้าบ้าน (React) และทำให้อ่านข้อมูล JSON ได้
-app.use(cors());
+// 🔒 จำกัด CORS เหลือเฉพาะโดเมน Frontend ที่ได้รับอนุญาต แทน app.use(cors()) เดิม
+// ซึ่งเปิดรับทุก Origin (Access-Control-Allow-Origin: *) — แก้ตามผลทดสอบ Security
+// ตั้งค่าโดเมน production เพิ่มได้ผ่าน .env ตัวแปร FRONTEND_URL (คั่นหลายโดเมนด้วย comma)
+const allowedOrigins = [
+  'http://localhost:5173',
+  ...((process.env.FRONTEND_URL || '').split(',').map((o) => o.trim()).filter(Boolean))
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    // อนุญาตคำขอที่ไม่มี Origin (เช่น curl/Postman) และโดเมนที่อยู่ใน allowlist เท่านั้น
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS_NOT_ALLOWED'));
+  }
+}));
+// ปฏิเสธ Origin ที่ไม่ได้รับอนุญาตด้วย 403 + JSON ที่อ่านง่าย แทนที่จะปล่อยให้หลุดเป็น 500 ทั่วไป
+app.use((err, req, res, next) => {
+  if (err && err.message === 'CORS_NOT_ALLOWED') {
+    return res.status(403).json({ message: 'Origin นี้ไม่ได้รับอนุญาตให้เข้าถึง API' });
+  }
+  next(err);
+});
 app.use(express.json());
 
 const authRoutes = require('./routes/authRoutes');

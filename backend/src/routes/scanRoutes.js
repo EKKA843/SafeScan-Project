@@ -32,7 +32,8 @@ const localProtect = (req, res, next) => {
 router.post('/start', localProtect, scanController.startScan);
 
 // 🎯 2. ส่องดูสเตตัสสแกนระหว่างรัน CLI (รัน Nmap / SSLyze)
-router.get('/status/:id', scanController.getScanStatus);
+// 🔒 ต้องผ่าน localProtect + ตรวจความเป็นเจ้าของใน controller ป้องกัน IDOR (แก้ตามผลทดสอบ Security)
+router.get('/status/:id', localProtect, scanController.getScanStatus);
 
 // 🎯 3. ดึงรายการประวัติการสแกนทั้งหมดของคนที่ล็อกอิน
 router.get('/history', localProtect, scanController.getScanHistory);
